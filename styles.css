@@ -746,7 +746,7 @@ button:active {
 .race-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .race-label {
@@ -754,10 +754,14 @@ button:active {
   justify-content: space-between;
   align-items: center;
   font-size: 0.8rem;
+  gap: 10px;
 }
 
 .race-label span.name {
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .race-label span.crown {
@@ -767,7 +771,7 @@ button:active {
 
 .race-track-bar {
   position: relative;
-  height: 18px;
+  height: 44px;
   border-radius: 999px;
   background: linear-gradient(90deg, #020617, #020617);
   overflow: hidden;
@@ -776,24 +780,31 @@ button:active {
 
 .race-car {
   position: absolute;
-  top: 1px;
-  bottom: 1px;
+  top: 4px;
+  bottom: 4px;
   left: 0;
-  min-width: 50px;
+  min-width: 72px;
   border-radius: 999px;
   background: linear-gradient(90deg, #22c55e, #a3e635);
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 8px;
-  font-size: 1.1rem;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 1.35rem;
   color: #020617;
   transition: width 0.4s ease-out;
 }
 
-.race-track-bar {
-  min-height: 32px;
+.race-finish {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .race-track-container {
@@ -984,4 +995,129 @@ button:active {
 
 #closePopupBtn {
   width: 100%;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.meal-card {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.75);
+  padding: 12px;
+}
+
+.meal-card h4,
+.risk-factor-card h4 {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.meal-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.food-analysis-entry {
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  padding: 10px;
+}
+
+.food-analysis-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 0.82rem;
+}
+
+.food-analysis-macros {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.risk-factor-list {
+  display: grid;
+  gap: 12px;
+}
+
+.risk-factor-card {
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(2, 6, 23, 0.72);
+  padding: 12px 14px;
+}
+
+.risk-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 138, 61, 0.18);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+}
+
+.simple-workout-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.exercise-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.exercise-thumb,
+.exercise-check-wrap {
+  display: none;
+}
+
+.sleep-graph {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  min-height: 180px;
+}
+
+.sleep-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 180px;
+}
+
+.sleep-bar {
+  width: 100%;
+  max-width: 34px;
+  border-radius: 14px 14px 8px 8px;
+  background: linear-gradient(180deg, #60a5fa, #ff8a3d);
+  box-shadow: 0 10px 20px rgba(96, 165, 250, 0.22);
+}
+
+.sleep-bar-wrap span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.sleep-bar-wrap strong {
+  font-size: 0.8rem;
 }

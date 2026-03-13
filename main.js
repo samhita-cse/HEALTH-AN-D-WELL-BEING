@@ -9,12 +9,17 @@ const state = {
   sleepPlan: null,
   sleepTouches: [],
   racers: {},
+  friendConnections: [],
+  profile: null,
 };
 
 let firebaseEnabled = false;
 let firestore = null;
 let currentUid = null;
 let firebaseAuth = null;
+let appStateSyncTimer = null;
+let applyingRemoteState = false;
+let stopFriendScoreListener = null;
 
 async function initFirebaseIfConfigured() {
   const cfg = window.__FIREBASE_CONFIG__;
@@ -139,6 +144,133 @@ let selectedMoodEmoji = null;
 
 const bodyActivities = [];
 
+function canUseRealtimeDbHelpers() {
+  return typeof window.saveUserData === "function" && typeof window.getUserData === "function";
+}
+
+const SCOPED_LOCAL_KEYS = new Set([
+  "riskRadarProfile",
+  "workoutStateV1",
+  "workoutTimePref",
+  "workoutSelectedDayIdx",
+  "sleepBedtime",
+  "sleepWeeklyHistory",
+]);
+
+function buildPersistedAppState() {
+  return {
+    bodyActivities: [...bodyActivities],
+    bodyRegionsHit: { ...bodyRegionsHit },
+    calorieTarget: state.calorieTarget,
+    todayCalories: state.todayCalories,
+    foods: state.foods || [],
+    moodEntries: state.moodEntries || [],
+    sleepPlan: state.sleepPlan,
+    sleepTouches: state.sleepTouches || [],
+    racers: state.racers || {},
+    friendConnections: state.friendConnections || [],
+    profile: state.profile || loadJson("riskRadarProfile", null),
+    selectedMoodEmoji,
+    workoutStateV1: loadWorkoutState(),
+    workoutTimePref: loadJson("workoutTimePref", null),
+    workoutSelectedDayIdx: loadJson("workoutSelectedDayIdx", null),
+    sleepBedtime: loadJson("sleepBedtime", null),
+    sleepWeeklyHistory: loadJson("sleepWeeklyHistory", []),
+    riskRadarProfile: loadJson("riskRadarProfile", null),
+  };
+}
+
+function renderFoodLog() {
+  if (!foodLog) return;
+  foodLog.innerHTML = "";
+  state.foods.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "food-entry";
+    row.innerHTML = `<span>${entry.name}</span><span>${Math.round(entry.kcal)} kcal</span>`;
+    foodLog.appendChild(row);
+  });
+}
+
+function applyPersistedAppState(data) {
+  if (!data || typeof data !== "object") return;
+  applyingRemoteState = true;
+  try {
+    bodyActivities.length = 0;
+    bodyActivities.push(...(Array.isArray(data.bodyActivities) ? data.bodyActivities : []));
+    Object.keys(bodyRegionsHit).forEach((key) => {
+      bodyRegionsHit[key] = Boolean(data.bodyRegionsHit?.[key]);
+    });
+    state.calorieTarget = data.calorieTarget ?? null;
+    state.todayCalories = Number(data.todayCalories || 0);
+    state.foods = Array.isArray(data.foods) ? data.foods : [];
+    state.moodEntries = Array.isArray(data.moodEntries) ? data.moodEntries : [];
+    state.sleepPlan = data.sleepPlan || null;
+    state.sleepTouches = Array.isArray(data.sleepTouches) ? data.sleepTouches : [];
+    state.racers = data.racers || {};
+    state.friendConnections = Array.isArray(data.friendConnections) ? data.friendConnections : [];
+    state.profile = data.profile || data.riskRadarProfile || null;
+    selectedMoodEmoji = data.selectedMoodEmoji || null;
+
+    if (data.riskRadarProfile) saveJson("riskRadarProfile", data.riskRadarProfile);
+    if (data.workoutStateV1) saveWorkoutState(data.workoutStateV1);
+    if (data.workoutTimePref) saveJson("workoutTimePref", data.workoutTimePref);
+    if (data.workoutSelectedDayIdx != null) saveJson("workoutSelectedDayIdx", data.workoutSelectedDayIdx);
+    if (data.sleepBedtime) saveJson("sleepBedtime", data.sleepBedtime);
+    if (Array.isArray(data.sleepWeeklyHistory)) saveJson("sleepWeeklyHistory", data.sleepWeeklyHistory);
+
+    repaintBodyFromRegions();
+    renderFoodLog();
+    updateFoodSummary();
+    renderMoodLog();
+    renderMoodSummary();
+    renderSleepPlan();
+    renderSleepQuality();
+    renderSleepWeekly();
+    renderFriendList();
+    if (document.getElementById("riskRadar")?.classList.contains("active")) {
+      initRiskRadar();
+    }
+    if (currentWorkoutPlan || loadWorkoutState()?.plan) {
+      currentWorkoutPlan = currentWorkoutPlan || loadWorkoutState()?.plan || null;
+      renderWorkoutPlanUI();
+    }
+  } finally {
+    applyingRemoteState = false;
+  }
+}
+
+async function loadAppStateFromRealtimeDb() {
+  if (!canUseRealtimeDbHelpers() || !window.currentFirebaseUser) return;
+  try {
+    const snapshot = await window.getUserData("appState");
+    if (snapshot) {
+      applyPersistedAppState(snapshot);
+      await refreshRaceTrackFromFriends();
+    } else {
+      scheduleAppStateSync();
+    }
+  } catch (error) {
+    console.error("Failed to load app state:", error);
+  }
+}
+
+async function saveAppStateToRealtimeDb() {
+  if (applyingRemoteState || !canUseRealtimeDbHelpers() || !window.currentFirebaseUser) return;
+  try {
+    await window.saveUserData("appState", buildPersistedAppState());
+  } catch (error) {
+    console.error("Failed to save app state:", error);
+  }
+}
+
+function scheduleAppStateSync() {
+  if (applyingRemoteState) return;
+  clearTimeout(appStateSyncTimer);
+  appStateSyncTimer = setTimeout(() => {
+    saveAppStateToRealtimeDb();
+  }, 250);
+}
+
 function repaintBodyFromRegions() {
   const idsToReset = ["face", "eyeLeft", "eyeRight", "mouth", "heart", "kidneyLeft", "kidneyRight", "armLeft", "armRight", "palmLeft", "palmRight", "legLeft", "legRight", "torso", "neck"];
   idsToReset.forEach((id) => {
@@ -210,12 +342,14 @@ bodyActivityForm.addEventListener("submit", (e) => {
   bodyActivities.unshift({ name: name || "(no name)", focus, at: new Date() });
   repaintBodyFromRegions();
   bodyActivityForm.reset();
+  scheduleAppStateSync();
 });
 
 resetBodyBtn.addEventListener("click", () => {
   Object.keys(bodyRegionsHit).forEach((k) => { bodyRegionsHit[k] = false; });
   bodyActivities.length = 0;
   repaintBodyFromRegions();
+  scheduleAppStateSync();
 });
 
 function renderBodyActivityLog() {
@@ -278,8 +412,9 @@ function initRiskRadar() {
         <div class="highlight-card" id="rrProfileResult"></div></div>`;
       document.getElementById("rrSaveProfile")?.addEventListener("click", () => {
         const p = { age: Number(document.getElementById("rrAge")?.value)||30, sex: document.getElementById("rrSex")?.value||"male", height: Number(document.getElementById("rrHeight")?.value)||170, weight: Number(document.getElementById("rrWeight")?.value)||70, activity: Number(document.getElementById("rrActivity")?.value)||1.55 };
-        saveJson("riskRadarProfile", p); state.calorieTarget = calculateDailyCalories(p);
+        saveJson("riskRadarProfile", p); state.profile = p; state.calorieTarget = calculateDailyCalories(p);
         document.getElementById("rrProfileResult").innerHTML = `Target: <strong>${state.calorieTarget} kcal/day</strong> 🎯`;
+        scheduleAppStateSync();
       });
     } else if (id === "search") {
       container.innerHTML = `<div class="stack-form"><h3>Food search</h3>
@@ -293,6 +428,7 @@ function initRiskRadar() {
         const kcal = (FOOD_TABLE[name]||100)*qty/100;
         state.foods.push({name,kcal}); state.todayCalories+=kcal;
         document.getElementById("rrSearchResult").innerHTML = `Added ${name}: ${Math.round(kcal)} kcal 🍎`;
+        scheduleAppStateSync();
       });
     } else if (id === "triangle") { container.innerHTML = `<div class="highlight-card"><h3>🔄 Triangle Engine</h3><p>Sleep ↔ Stress ↔ Food. Poor sleep raises stress; stress affects food choices; food affects sleep.</p></div>`; }
     else if (id === "debt") { container.innerHTML = `<div class="highlight-card"><h3>💰 Health Debt</h3><p>Junk +debt, workouts/good food -debt. Resets daily.</p></div>`; }
@@ -340,8 +476,10 @@ calorieTargetForm?.addEventListener("submit", (e) => {
 
   const target = calculateDailyCalories({ age, sex, height, weight, activity });
   state.calorieTarget = target;
+  state.profile = { age, sex, height, weight, activity };
   updateFoodSummary();
   if (calorieTargetResult) calorieTargetResult.innerHTML = `<strong>Daily target:</strong><br/><span style="font-size:1.1rem;">${target.toLocaleString()} kcal</span><br/><span style="color:var(--muted);font-size:0.78rem;">Mifflin-St Jeor equation.</span>`;
+  scheduleAppStateSync();
 });
 
 function addFoodEntry(name, kcal) {
@@ -349,6 +487,35 @@ function addFoodEntry(name, kcal) {
   state.todayCalories += kcal;
   if (foodLog) { const row = document.createElement("div"); row.className = "food-entry"; row.innerHTML = `<span>${name}</span><span>${Math.round(kcal)} kcal</span>`; foodLog.appendChild(row); }
   updateFoodSummary();
+  scheduleAppStateSync();
+}
+
+function resetSessionViewState() {
+  state.calorieTarget = null;
+  state.todayCalories = 0;
+  state.foods = [];
+  state.moodEntries = [];
+  state.sleepPlan = null;
+  state.sleepTouches = [];
+  state.racers = {};
+  state.racerEntries = [];
+  state.friendConnections = [];
+  state.profile = null;
+  selectedMoodEmoji = null;
+  bodyActivities.length = 0;
+  Object.keys(bodyRegionsHit).forEach((key) => {
+    bodyRegionsHit[key] = false;
+  });
+  repaintBodyFromRegions();
+  renderFoodLog();
+  updateFoodSummary();
+  renderMoodLog();
+  renderMoodSummary();
+  renderSleepPlan();
+  renderSleepQuality();
+  renderSleepWeekly();
+  renderFriendList();
+  renderRaceTrack();
 }
 
 foodForm?.addEventListener("submit", (e) => {
@@ -393,6 +560,7 @@ function updateFoodSummary() {
     showPopup("Calorie Quest Complete", "You hit your daily calorie goal. Most people never track this consistently – you're already ahead.");
   }
   foodSummary.innerHTML = text;
+  if (!applyingRemoteState) scheduleAppStateSync();
 }
 
 // MOOD / STRESS
@@ -432,6 +600,7 @@ moodForm?.addEventListener("submit", (e) => {
   selectedMoodEmoji = null;
   document.querySelectorAll(".mood-emoji-btn").forEach((b) => b.classList.remove("selected"));
   document.getElementById("moodEmojiSelected").textContent = "";
+  scheduleAppStateSync();
 });
 
 const EMOJI_MAP = { sad: "😢", happy: "😊", angry: "😠", crying: "😭", scared: "😨", laughing: "😂" };
@@ -494,7 +663,8 @@ let workoutSelectedDayIdx = null;
 
 function loadJson(key, fallback) {
   try {
-    const raw = localStorage.getItem(key);
+    const scopedKey = SCOPED_LOCAL_KEYS.has(key) && window.currentFirebaseUser?.uid ? `${key}:${window.currentFirebaseUser.uid}` : key;
+    const raw = localStorage.getItem(scopedKey);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -503,8 +673,19 @@ function loadJson(key, fallback) {
 
 function saveJson(key, value) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const scopedKey = SCOPED_LOCAL_KEYS.has(key) && window.currentFirebaseUser?.uid ? `${key}:${window.currentFirebaseUser.uid}` : key;
+    localStorage.setItem(scopedKey, JSON.stringify(value));
   } catch {}
+  if (
+    key === "riskRadarProfile" ||
+    key === "workoutStateV1" ||
+    key === "workoutTimePref" ||
+    key === "workoutSelectedDayIdx" ||
+    key === "sleepBedtime" ||
+    key === "sleepWeeklyHistory"
+  ) {
+    scheduleAppStateSync();
+  }
 }
 
 function timeStrToMinutes(t) {
@@ -709,14 +890,22 @@ function confettiBurst(anchorEl) {
 
 function awardPoints(points) {
   const st = loadWorkoutState();
-  st.points = (st.points || 0) + points;
+  st.points = Math.min(100, (st.points || 0) + points);
   saveWorkoutState(st);
-  const key = "You";
+  const key = window.currentFirebaseUser?.displayName || window.currentFirebaseUser?.email || "You";
   state.racers[key] = Math.min(100, (state.racers[key] || 0) + points);
   renderRaceTrack();
+  scheduleAppStateSync();
+  if (typeof window.saveCurrentUserScore === "function") {
+    window.saveCurrentUserScore(st.points).catch(() => {});
+  }
   if (firebaseEnabled && firestore) {
     firestore.collection("public").doc("racers").set({ racers: state.racers, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
   }
+}
+
+function getScoreBreakdownText() {
+  return "Scoring: each finished workout item gives 2 points. The race finish line is 100 points, and each signed-in Firebase account keeps its own score.";
 }
 
 function getStockThumb(hint) {
@@ -889,6 +1078,7 @@ workoutForm?.addEventListener("submit", (e) => {
   workoutPlanSummary.innerHTML = `<strong>Plan ready.</strong> ${plan.daysPerWeek} days/week • ~${plan.minutesPerDay} min/day`;
   renderWorkoutPlanUI();
   showPopup("Workout Plan Ready", "Your weekly plan is generated. Consistency beats intensity.");
+  scheduleAppStateSync();
 });
 
 // SLEEP
@@ -956,6 +1146,7 @@ sleepForm?.addEventListener("submit", (e) => {
   renderSleepPlan();
   renderSleepQuality();
   renderSleepWeekly();
+  scheduleAppStateSync();
 });
 
 function renderSleepPlan() {
@@ -996,6 +1187,7 @@ document.addEventListener("click", () => {
     sleepTouchLog.innerHTML = `Detected <strong>${state.sleepTouches.length}</strong> interaction(s) during sleep. Try to avoid phone use. 😴`;
     if (state.sleepTouches.length >= 2) showPopup("Bedtime reminder", "It's your bedtime. Try to avoid using your phone and get some rest.");
     renderSleepQuality();
+    scheduleAppStateSync();
   }
 }, true);
 
@@ -1022,6 +1214,95 @@ geoForm?.addEventListener("submit", (e) => {
 
 // SCOREBOARD (Firebase-driven - scores from workouts)
 const raceTrack = document.getElementById("raceTrack");
+const friendSearchInput = document.getElementById("friendSearchInput");
+const addFriendBtn = document.getElementById("addFriendBtn");
+const refreshFriendsBtn = document.getElementById("refreshFriendsBtn");
+const friendStatus = document.getElementById("friendStatus");
+const friendList = document.getElementById("friendList");
+
+function getCurrentFriendScore() {
+  const points = loadWorkoutState()?.points || 0;
+  const user = window.currentFirebaseUser;
+  return {
+    uid: user?.uid || "local-user",
+    name: user?.displayName || "You",
+    email: user?.email || "",
+    points,
+  };
+}
+
+function renderFriendList() {
+  if (!friendList) return;
+  const items = state.friendConnections || [];
+  if (!items.length) {
+    friendList.innerHTML = '<p class="hint">No friends added yet.</p>';
+    return;
+  }
+  friendList.innerHTML = items.map((friend, index) => `
+    <div class="food-entry">
+      <span>${escapeHtml(friend.name || friend.email || "Friend")}<br/><span class="hint">${escapeHtml(friend.email || "")}</span></span>
+      <button type="button" class="secondary-btn small-btn friend-remove-btn" data-index="${index}">Remove</button>
+    </div>
+  `).join("");
+  friendList.querySelectorAll(".friend-remove-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const index = Number(btn.getAttribute("data-index"));
+      state.friendConnections.splice(index, 1);
+      renderFriendList();
+      await refreshRaceTrackFromFriends();
+      subscribeToFriendScoreUpdates();
+      await saveAppStateToRealtimeDb();
+      scheduleAppStateSync();
+    });
+  });
+}
+
+async function refreshRaceTrackFromFriends() {
+  if (!raceTrack) return;
+  const me = getCurrentFriendScore();
+  const friendUids = (state.friendConnections || []).map((item) => item.uid).filter(Boolean);
+  let friends = [];
+  if (friendUids.length && typeof window.getUsersByUids === "function") {
+    try {
+      friends = await window.getUsersByUids(friendUids);
+    } catch {
+      friends = [];
+    }
+  }
+  const fallbackFriends = (state.friendConnections || []).map((item) => ({
+    uid: item.uid,
+    name: item.name || item.email || "Friend",
+    email: item.email || "",
+    points: Number(item.points || 0),
+  }));
+  const combined = [me, ...friends, ...fallbackFriends].filter(Boolean);
+  const deduped = combined.filter((entry, index, arr) => arr.findIndex((item) => item.uid === entry.uid) === index);
+  state.racerEntries = deduped.map((entry, index) => ({
+    id: entry.uid || `friend-${index}`,
+    name: entry.name || entry.email || "Friend",
+    email: entry.email || "",
+    points: Number(entry.points || 0),
+  }));
+  state.racers = Object.fromEntries(state.racerEntries.map((entry) => [`${entry.name}__${entry.id}`, entry.points]));
+  renderRaceTrack();
+}
+
+function subscribeToFriendScoreUpdates() {
+  if (typeof stopFriendScoreListener === "function") {
+    stopFriendScoreListener();
+    stopFriendScoreListener = null;
+  }
+  const friendUids = (state.friendConnections || []).map((item) => item.uid).filter(Boolean);
+  if (!friendUids.length || typeof window.listenToUsersByUids !== "function") return;
+  stopFriendScoreListener = window.listenToUsersByUids(friendUids, async (friends) => {
+    state.friendConnections = (state.friendConnections || []).map((existing) => {
+      const updated = friends.find((friend) => friend.uid === existing.uid);
+      return updated ? { ...existing, ...updated } : existing;
+    });
+    renderFriendList();
+    await refreshRaceTrackFromFriends();
+  });
+}
 
 function renderRaceTrack() {
   if (!raceTrack) return;
@@ -1131,6 +1412,502 @@ porosityForm?.addEventListener("submit", (e) => {
     <br/><strong>Avoid:</strong> ${data.avoid}
   `;
   showPopup("Hair Porosity Analysed ✨", "Use this detailed analysis to match products and routines to what your strands actually need.");
+});
+
+const FOOD_ANALYSIS_DB = {
+  rice: { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, fiber: 0.4, ingredients: ["rice"], swap: "quinoa" },
+  dosa: { kcal: 168, protein: 4.5, carbs: 28, fat: 3.7, fiber: 1.2, ingredients: ["rice", "urad dal", "oil"], swap: "ragi dosa" },
+  idli: { kcal: 58, protein: 2, carbs: 12, fat: 0.4, fiber: 0.8, ingredients: ["rice", "urad dal"], swap: "oats idli" },
+  oats: { kcal: 68, protein: 2.4, carbs: 12, fat: 1.4, fiber: 1.7, ingredients: ["oats"], swap: "millet porridge" },
+  banana: { kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, fiber: 2.6, ingredients: ["banana"], swap: "apple" },
+  apple: { kcal: 52, protein: 0.3, carbs: 14, fat: 0.2, fiber: 2.4, ingredients: ["apple"], swap: "pear" },
+  egg: { kcal: 155, protein: 13, carbs: 1.1, fat: 11, fiber: 0, ingredients: ["egg"], swap: "tofu scramble" },
+  yogurt: { kcal: 59, protein: 10, carbs: 3.6, fat: 0.4, fiber: 0, ingredients: ["milk cultures"], swap: "coconut yogurt" },
+  milk: { kcal: 60, protein: 3.2, carbs: 5, fat: 3.3, fiber: 0, ingredients: ["milk"], swap: "soy milk" },
+  roti: { kcal: 110, protein: 3.4, carbs: 22, fat: 0.8, fiber: 3, ingredients: ["whole wheat"], swap: "jowar roti" },
+  chapati: { kcal: 120, protein: 3.5, carbs: 22, fat: 2, fiber: 2.8, ingredients: ["whole wheat"], swap: "multigrain roti" },
+  dal: { kcal: 116, protein: 9, carbs: 20, fat: 0.4, fiber: 8, ingredients: ["lentils", "spices"], swap: "moong soup" },
+  chicken: { kcal: 165, protein: 31, carbs: 0, fat: 3.6, fiber: 0, ingredients: ["chicken"], swap: "grilled fish" },
+  paneer: { kcal: 265, protein: 18, carbs: 6, fat: 21, fiber: 0, ingredients: ["milk solids"], swap: "tofu" },
+  salad: { kcal: 45, protein: 2, carbs: 9, fat: 0.5, fiber: 3.5, ingredients: ["lettuce", "cucumber", "tomato"], swap: "sprout salad" },
+  smoothie: { kcal: 95, protein: 3, carbs: 18, fat: 1.5, fiber: 3, ingredients: ["fruit", "curd", "seeds"], swap: "green smoothie" },
+  bread: { kcal: 265, protein: 9, carbs: 49, fat: 3.2, fiber: 2.7, ingredients: ["wheat", "yeast"], swap: "whole grain bread" },
+  pasta: { kcal: 131, protein: 5, carbs: 25, fat: 1.1, fiber: 1.5, ingredients: ["wheat"], swap: "whole wheat pasta" },
+  potato: { kcal: 77, protein: 2, carbs: 17, fat: 0.1, fiber: 2.2, ingredients: ["potato"], swap: "sweet potato" },
+  broccoli: { kcal: 34, protein: 2.8, carbs: 7, fat: 0.4, fiber: 2.6, ingredients: ["broccoli"], swap: "beans" },
+  spinach: { kcal: 23, protein: 2.9, carbs: 3.6, fat: 0.4, fiber: 2.2, ingredients: ["spinach"], swap: "amaranth leaves" },
+};
+
+const FOOD_ANALYSIS_MEALS = ["breakfast", "lunch", "dinner"];
+const SLEEP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function getSavedFoodProfile() {
+  const fallback = { age: 30, sex: "female", height: 165, weight: 60, activity: 1.55, conditions: "", allergies: "" };
+  return { ...fallback, ...(loadJson("riskRadarProfile", fallback) || {}), ...(state.profile || {}) };
+}
+
+function calculateBmi(heightCm, weightKg) {
+  const m = Number(heightCm) / 100;
+  if (!m || !weightKg) return 0;
+  return weightKg / (m * m);
+}
+
+function getFoodAnalysisNutrition(name, grams) {
+  const key = String(name || "").trim().toLowerCase();
+  const base = FOOD_ANALYSIS_DB[key] || { kcal: 120, protein: 4, carbs: 16, fat: 4, fiber: 2, ingredients: [key || "custom ingredient"], swap: "fruit bowl" };
+  const scale = (Number(grams) || 100) / 100;
+  return { name: key || "custom food", grams: Number(grams) || 100, kcal: Math.round(base.kcal * scale), protein: +(base.protein * scale).toFixed(1), carbs: +(base.carbs * scale).toFixed(1), fat: +(base.fat * scale).toFixed(1), fiber: +(base.fiber * scale).toFixed(1), ingredients: [...base.ingredients], swap: base.swap };
+}
+
+function getMealFoods(meal) {
+  return (state.foods || []).filter((item) => (item.meal || "breakfast") === meal);
+}
+
+function getFoodDayTotals() {
+  return (state.foods || []).reduce((sum, item) => {
+    sum.kcal += Number(item.kcal || 0);
+    sum.protein += Number(item.protein || 0);
+    sum.carbs += Number(item.carbs || 0);
+    sum.fat += Number(item.fat || 0);
+    return sum;
+  }, { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+function buildDiseaseRisks(profile) {
+  const bmi = calculateBmi(profile.height, profile.weight);
+  const conditions = String(profile.conditions || "").toLowerCase();
+  const risks = [];
+  const add = (title, level, causes, prevention, foods) => risks.push({ title, level, causes, prevention, foods });
+  if (bmi >= 25 || /obesity|overweight/.test(conditions)) add("Obesity risk", bmi >= 30 ? "High" : "Moderate", "Calorie surplus, low activity, poor sleep rhythm, and frequent ultra-processed foods.", "Use portion awareness, daily walking, regular strength work, and protein-rich meals to protect muscle while losing fat.", "Oats, dal, soups, vegetables, curd, eggs, fruit, and smoothies without added sugar.");
+  if (bmi >= 25 || /diabet|insulin|pcos/.test(conditions)) add("Type 2 diabetes risk", /diabet/.test(conditions) ? "High" : "Moderate", "Frequent refined carbs, sugary drinks, central weight gain, and low fiber intake can raise glucose swings.", "Choose slower-digesting carbs, combine carbs with protein, move after meals, and keep sleep consistent.", "Millets, oats, beans, sprouts, paneer or tofu, eggs, nuts, and high-fiber vegetables.");
+  if (profile.age >= 35 || /pressure|hypertension|heart/.test(conditions)) add("Heart and blood pressure risk", /heart|hypertension|pressure/.test(conditions) ? "High" : "Moderate", "Stress, excess sodium, low aerobic fitness, and extra abdominal fat increase long-term risk.", "Limit fried and packaged foods, train regularly, build a calmer sleep routine, and increase potassium-rich whole foods.", "Leafy greens, banana, beetroot, yogurt, beans, fish, olive oil, berries, and garlic.");
+  if (!risks.length) add("General prevention outlook", "Low to moderate", "Risk rises when movement, sleep, and meal quality drift together for months.", "Stay active, sleep 7-9 hours, hydrate, and keep most meals home-style and balanced.", "Whole grains, colorful vegetables, fruit, dal, curd, nuts, and lean proteins.");
+  return risks;
+}
+
+function renderFoodAnalysisProfile(container) {
+  const profile = getSavedFoodProfile();
+  const bmi = calculateBmi(profile.height, profile.weight);
+  const calories = calculateDailyCalories(profile);
+  state.profile = profile;
+  state.calorieTarget = calories;
+  container.innerHTML = `<div class="analysis-grid"><div class="highlight-card"><h3>Profile</h3><div class="field-row"><label>Age</label><input type="number" id="rrAge" value="${profile.age}" min="10" max="100" /></div><div class="field-row"><label>Gender</label><select id="rrSex"><option value="male" ${profile.sex === "male" ? "selected" : ""}>Male</option><option value="female" ${profile.sex === "female" ? "selected" : ""}>Female</option></select></div><div class="field-row"><label>Height (cm)</label><input type="number" id="rrHeight" value="${profile.height}" /></div><div class="field-row"><label>Weight (kg)</label><input type="number" id="rrWeight" value="${profile.weight}" /></div><div class="field-row"><label>Activity level</label><select id="rrActivity"><option value="1.2" ${profile.activity == 1.2 ? "selected" : ""}>Sedentary</option><option value="1.375" ${profile.activity == 1.375 ? "selected" : ""}>Lightly active</option><option value="1.55" ${profile.activity == 1.55 ? "selected" : ""}>Moderately active</option><option value="1.725" ${profile.activity == 1.725 ? "selected" : ""}>Very active</option></select></div><div class="field-row"><label>Health conditions</label><textarea id="rrConditions" rows="2" placeholder="e.g. diabetes, hypertension, PCOS">${escapeHtml(profile.conditions || "")}</textarea></div><div class="field-row"><label>Allergies</label><textarea id="rrAllergies" rows="2" placeholder="e.g. peanuts, milk, egg">${escapeHtml(profile.allergies || "")}</textarea></div><button type="button" id="rrSaveProfile">Save profile</button></div><div class="highlight-card"><h3>Results</h3><div id="rrProfileResult"><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "--"}<br/><strong>Daily calories:</strong> ${calories} kcal<br/><span class="hint">Estimate only. Use medical advice for diagnosis or treatment.</span></div></div></div>`;
+  document.getElementById("rrSaveProfile")?.addEventListener("click", () => {
+    const next = { age: Number(document.getElementById("rrAge")?.value) || 30, sex: document.getElementById("rrSex")?.value || "female", height: Number(document.getElementById("rrHeight")?.value) || 165, weight: Number(document.getElementById("rrWeight")?.value) || 60, activity: Number(document.getElementById("rrActivity")?.value) || 1.55, conditions: document.getElementById("rrConditions")?.value?.trim() || "", allergies: document.getElementById("rrAllergies")?.value?.trim() || "" };
+    saveJson("riskRadarProfile", next);
+    state.profile = next;
+    state.calorieTarget = calculateDailyCalories(next);
+    initRiskRadar();
+    scheduleAppStateSync();
+  });
+}
+
+addFriendBtn?.addEventListener("click", async () => {
+  const query = friendSearchInput?.value?.trim();
+  if (!query) {
+    if (friendStatus) friendStatus.textContent = "Enter a username or email first.";
+    return;
+  }
+  if (typeof window.findUsersByNameOrEmail !== "function") {
+    if (friendStatus) friendStatus.textContent = "Friend search is not ready yet.";
+    return;
+  }
+  const matches = await window.findUsersByNameOrEmail(query);
+  if (!matches.length) {
+    if (friendStatus) friendStatus.textContent = "No matching user found.";
+    return;
+  }
+  const friend = matches[0];
+  const currentUser = window.currentFirebaseUser;
+  if (currentUser && (friend.uid === currentUser.uid || (friend.email && friend.email === currentUser.email))) {
+    if (friendStatus) friendStatus.textContent = "You cannot add your own signed-in account as a friend.";
+    return;
+  }
+  const exists = (state.friendConnections || []).some((item) => item.uid === friend.uid);
+  if (exists) {
+    if (friendStatus) friendStatus.textContent = `${friend.name} is already on your leaderboard.`;
+    return;
+  }
+  state.friendConnections.push(friend);
+  if (friendSearchInput) friendSearchInput.value = "";
+  if (friendStatus) friendStatus.textContent = `${friend.name} added to your leaderboard.`;
+  renderFriendList();
+  await refreshRaceTrackFromFriends();
+  subscribeToFriendScoreUpdates();
+  await saveAppStateToRealtimeDb();
+  scheduleAppStateSync();
+});
+
+refreshFriendsBtn?.addEventListener("click", async () => {
+  if (friendStatus) friendStatus.textContent = `Refreshing friend scores... ${getScoreBreakdownText()}`;
+  renderFriendList();
+  await refreshRaceTrackFromFriends();
+  subscribeToFriendScoreUpdates();
+  await saveAppStateToRealtimeDb();
+  if (friendStatus) friendStatus.textContent = "Friend scores refreshed.";
+});
+
+function renderFoodAnalysisMeals(container) {
+  const profile = getSavedFoodProfile();
+  const allergyText = String(profile.allergies || "").toLowerCase();
+  const target = state.calorieTarget || calculateDailyCalories(profile);
+  container.innerHTML = `<div class="highlight-card"><h3>Meal tracker</h3><p class="hint">Track breakfast, lunch, and dinner separately. Each food stays inside its meal section until you remove it.</p><div class="analysis-grid meal-input-grid">${FOOD_ANALYSIS_MEALS.map((meal) => `<div class="meal-card"><h4>${meal.charAt(0).toUpperCase() + meal.slice(1)}</h4><div class="field-row"><label>Food name</label><input type="text" id="meal-food-${meal}" placeholder="e.g. rice, dosa, dal" /></div><div class="field-row"><label>Grams eaten</label><input type="number" id="meal-grams-${meal}" value="100" min="1" /></div><button type="button" class="meal-add-btn" data-meal="${meal}">Add ${meal}</button><div id="meal-list-${meal}" class="meal-list"></div></div>`).join("")}</div><div id="foodAnalysisSummary" class="highlight-card"></div></div>`;
+  const summaryEl = document.getElementById("foodAnalysisSummary");
+  function repaintMeals() {
+    FOOD_ANALYSIS_MEALS.forEach((meal) => {
+      const mealEl = document.getElementById(`meal-list-${meal}`);
+      if (!mealEl) return;
+      const items = getMealFoods(meal);
+      if (!items.length) {
+        mealEl.innerHTML = `<p class="hint">No foods added to ${meal} yet.</p>`;
+        return;
+      }
+      mealEl.innerHTML = items.map((item, index) => {
+        const matchedAllergy = (item.ingredients || []).find((ingredient) => allergyText.includes(String(ingredient).toLowerCase()));
+        return `<div class="food-analysis-entry"><div class="food-analysis-head"><strong>${escapeHtml(item.name)}</strong><span>${item.grams} g • ${item.kcal} kcal</span></div><div class="food-analysis-macros">Protein ${item.protein} g • Carbs ${item.carbs} g • Fat ${item.fat} g • Fiber ${item.fiber} g</div><div class="food-analysis-macros">Ingredients: ${escapeHtml((item.ingredients || []).join(", "))}</div>${matchedAllergy ? `<div class="hint">Allergy swap suggestion: <strong>${escapeHtml(item.swap || "fruit bowl")}</strong></div>` : ""}<button type="button" class="secondary-btn small-btn food-remove-btn" data-meal="${meal}" data-index="${index}">Remove</button></div>`;
+      }).join("");
+    });
+    const latestTotal = getFoodDayTotals();
+    const delta = target - latestTotal.kcal;
+    if (summaryEl) summaryEl.innerHTML = `<strong>Total intake:</strong> ${latestTotal.kcal} kcal<br/><strong>Target:</strong> ${target} kcal<br/><strong>${delta >= 0 ? "Remaining" : "Over target by"}:</strong> ${Math.abs(delta)} kcal<br/><strong>Macros:</strong> Protein ${latestTotal.protein.toFixed(1)} g • Carbs ${latestTotal.carbs.toFixed(1)} g • Fat ${latestTotal.fat.toFixed(1)} g`;
+    document.querySelectorAll(".food-remove-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const meal = btn.getAttribute("data-meal");
+        const index = Number(btn.getAttribute("data-index"));
+        const mealItems = getMealFoods(meal);
+        const item = mealItems[index];
+        const globalIndex = state.foods.indexOf(item);
+        if (globalIndex >= 0) {
+          state.foods.splice(globalIndex, 1);
+          state.todayCalories = getFoodDayTotals().kcal;
+          repaintMeals();
+          scheduleAppStateSync();
+        }
+      });
+    });
+  }
+  document.querySelectorAll(".meal-add-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const meal = btn.getAttribute("data-meal");
+      const name = document.getElementById(`meal-food-${meal}`)?.value?.trim();
+      const grams = Number(document.getElementById(`meal-grams-${meal}`)?.value || 100);
+      if (!name) return;
+      const nutrition = getFoodAnalysisNutrition(name, grams);
+      state.foods.push({ ...nutrition, meal });
+      state.todayCalories = getFoodDayTotals().kcal;
+      document.getElementById(`meal-food-${meal}`).value = "";
+      document.getElementById(`meal-grams-${meal}`).value = "100";
+      repaintMeals();
+      scheduleAppStateSync();
+    });
+  });
+  repaintMeals();
+}
+
+function renderFoodAnalysisRisks(container) {
+  const profile = getSavedFoodProfile();
+  const risks = buildDiseaseRisks(profile);
+  const bmi = calculateBmi(profile.height, profile.weight);
+  container.innerHTML = `<div class="highlight-card"><h3>Risk factors</h3><p><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "--"} • <strong>Daily calories:</strong> ${state.calorieTarget || calculateDailyCalories(profile)} kcal</p><p class="hint">These are estimate-based prevention notes from the profile section and are not a diagnosis.</p><div class="risk-factor-list">${risks.map((risk) => `<article class="risk-factor-card"><h4>${escapeHtml(risk.title)} <span class="risk-pill">${escapeHtml(risk.level)}</span></h4><p><strong>Causes:</strong> ${escapeHtml(risk.causes)}</p><p><strong>Preventive measures:</strong> ${escapeHtml(risk.prevention)}</p><p><strong>Protective foods:</strong> ${escapeHtml(risk.foods)}</p></article>`).join("")}</div></div>`;
+}
+
+function initRiskRadar() {
+  document.querySelector('.tab-btn[data-tab="riskRadar"]')?.replaceChildren(document.createTextNode("Food Analysis"));
+  const heading = document.querySelector("#riskRadar h2");
+  if (heading) heading.textContent = "Food Analysis";
+  const container = document.getElementById("riskRadarContent");
+  const tabs = document.querySelectorAll(".risk-tab");
+  if (!container) return;
+  const render = (requested) => {
+    const current = requested === "search" ? "meals" : requested;
+    tabs.forEach((tab) => {
+      const key = tab.getAttribute("data-risk");
+      if (key === "search") tab.textContent = "Meal Tracker";
+      if (key === "risks") tab.textContent = "Risk Factors";
+      if (!["profile", "search", "risks"].includes(key)) tab.style.display = "none";
+      tab.classList.toggle("active", key === (current === "meals" ? "search" : current));
+    });
+    if (current === "profile") renderFoodAnalysisProfile(container);
+    else if (current === "risks") renderFoodAnalysisRisks(container);
+    else renderFoodAnalysisMeals(container);
+  };
+  if (!initRiskRadar._ready) {
+    tabs.forEach((tab) => tab.addEventListener("click", () => render(tab.getAttribute("data-risk"))));
+    initRiskRadar._ready = true;
+  }
+  render(document.querySelector(".risk-tab.active")?.getAttribute("data-risk") || "profile");
+}
+
+function renderWorkoutPlanUI() {
+  if (!workoutPlanUI) return;
+  const st = loadWorkoutState();
+  const plan = currentWorkoutPlan || st.plan;
+  if (!plan) {
+    workoutPlanUI.innerHTML = "";
+    return;
+  }
+  currentWorkoutPlan = plan;
+  if (workoutSelectedDayIdx == null) workoutSelectedDayIdx = loadJson("workoutSelectedDayIdx", 0) ?? 0;
+  const day = plan.days?.[workoutSelectedDayIdx] || plan.days?.[0];
+  if (!day) return;
+  const exerciseItems = day.items || [];
+  exerciseItems.forEach((item) => {
+    const existing = st.perExercise[item.id] || {};
+    st.perExercise[item.id] = {
+      durationSec: item.durationSec,
+      remainingSec: existing.remainingSec ?? item.durationSec,
+      startedAt: existing.startedAt || null,
+      finished: Boolean(existing.finished),
+      timerDone: Boolean(existing.timerDone),
+      paused: Boolean(existing.paused),
+    };
+  });
+
+  const completed = exerciseItems.filter((item) => st.perExercise[item.id]?.finished).length;
+  const total = Math.max(1, exerciseItems.length);
+
+  const listHtml = exerciseItems.map((item) => {
+    const exState = st.perExercise[item.id];
+    const elapsed = exState.startedAt ? Math.floor((Date.now() - exState.startedAt) / 1000) : 0;
+    const remaining = exState.finished ? 0 : Math.max(0, (exState.remainingSec ?? item.durationSec) - elapsed);
+    const canFinish = remaining <= 0 && exState.startedAt;
+    const timerText = exState.finished ? "Done" : formatTimer(remaining);
+    const statusText = exState.finished ? "Completed" : exState.startedAt ? "Running" : exState.paused ? "Paused" : "Ready";
+    return `<div class="exercise-row ${exState.finished ? "done" : ""}" data-ex="${item.id}"><div class="exercise-main"><div class="exercise-name">${escapeHtml(item.name)}</div><div class="exercise-sub">${Math.round(item.durationSec / 60)} min • ${statusText}</div></div><div class="exercise-controls"><div class="exercise-timer">${timerText}</div><button class="secondary-btn small-btn js-start" ${exState.finished ? "disabled" : ""}>${exState.finished ? "Finished" : exState.startedAt ? "Running" : exState.paused ? "Resume" : "Start"}</button><button class="js-finish" ${exState.finished ? "disabled" : ""}>${exState.finished ? "Finished" : canFinish ? "Finish" : "Pause"}</button></div></div>`;
+  }).join("");
+
+  workoutPlanUI.innerHTML = `<div class="workout-hero"><div><div class="workout-hero-title">${escapeHtml(day.title)}</div><div class="workout-hero-sub">${escapeHtml(plan.goal)} • ${escapeHtml(plan.level)} • ${plan.daysPerWeek} days</div></div><div class="workout-hero-mins">${day.totalMins || mins(exerciseItems)} mins</div></div><div class="workout-progress compact"><div class="workout-progress-top"><div class="workout-progress-title">Weekly</div><div class="workout-progress-badge">${completed}/${total}</div></div><div class="workout-progress-bar"><div class="workout-progress-fill" style="width:${(completed / total) * 100}%"></div></div></div><div class="simple-workout-list">${listHtml}</div>`;
+
+  workoutPlanUI.querySelectorAll(".exercise-row").forEach((row) => {
+    const exId = row.getAttribute("data-ex");
+    const exState = st.perExercise[exId];
+    const exercise = exerciseItems.find((item) => item.id === exId);
+    if (!exState || !exercise) return;
+    row.querySelector(".js-start")?.addEventListener("click", () => {
+      if (exState.finished || exState.startedAt) return;
+      exState.startedAt = Date.now();
+      exState.paused = false;
+      exState.timerDone = false;
+      saveWorkoutState(st);
+      renderWorkoutPlanUI();
+    });
+    row.querySelector(".js-finish")?.addEventListener("click", () => {
+      const elapsed = exState.startedAt ? Math.floor((Date.now() - exState.startedAt) / 1000) : 0;
+      const remaining = Math.max(0, (exState.remainingSec ?? exercise.durationSec) - elapsed);
+      if (!exState.startedAt && !exState.finished) {
+        exState.paused = true;
+        saveWorkoutState(st);
+        renderWorkoutPlanUI();
+        return;
+      }
+      if (remaining > 0) {
+        exState.remainingSec = remaining;
+        exState.startedAt = null;
+        exState.paused = true;
+        exState.timerDone = false;
+        saveWorkoutState(st);
+        showPopup("Timer paused", `You paused ${exercise.name} with ${formatTimer(remaining)} left.`);
+        renderWorkoutPlanUI();
+        return;
+      }
+      exState.remainingSec = 0;
+      exState.startedAt = null;
+      exState.finished = true;
+      exState.timerDone = true;
+      exState.paused = false;
+      saveWorkoutState(st);
+      confettiBurst(row);
+      awardPoints(2);
+      showPopup("Good job!", "You finished that workout block. Keep going!");
+      renderWorkoutPlanUI();
+    });
+  });
+
+  if (!workoutTickInterval) {
+    workoutTickInterval = setInterval(() => {
+      const liveState = loadWorkoutState();
+      const livePlan = currentWorkoutPlan || liveState.plan;
+      const liveDay = livePlan?.days?.[workoutSelectedDayIdx] || livePlan?.days?.[0];
+      const hasActiveTimer = (liveDay?.items || []).some((item) => {
+        const ex = liveState.perExercise?.[item.id];
+        return ex?.startedAt && !ex.finished;
+      });
+      if (hasActiveTimer) {
+        renderWorkoutPlanUI();
+      }
+    }, 1000);
+  }
+}
+
+function renderSleepPlan() {
+  if (!sleepPlan) return;
+  const history = loadJson("sleepWeeklyHistory", []);
+  if (!history.length) {
+    sleepPlan.innerHTML = "Enter your sleep hours from Sunday to Saturday to generate your weekly plan.";
+    return;
+  }
+  const avg = history.reduce((sum, item) => sum + Number(item.hours || 0), 0) / history.length;
+  sleepPlan.innerHTML = `<strong>Average sleep:</strong> ${avg.toFixed(1)} hours/night<br/><span class="hint">Aim for a steady 7-9 hour range through the week.</span>`;
+}
+
+function renderSleepQuality() {
+  if (!sleepQualityReport) return;
+  const history = loadJson("sleepWeeklyHistory", []);
+  if (!history.length) {
+    sleepQualityReport.innerHTML = "";
+    return;
+  }
+  const avg = history.reduce((sum, item) => sum + Number(item.hours || 0), 0) / history.length;
+  const spread = Math.max(...history.map((item) => Number(item.hours || 0))) - Math.min(...history.map((item) => Number(item.hours || 0)));
+  let quality = "Balanced sleep";
+  let advice = "Your weekly sleep pattern looks stable. Keep protecting your routine.";
+  if (avg < 6.5) {
+    quality = "Sleep debt building";
+    advice = "Your weekly average is low. Prioritize earlier wind-down, lower caffeine late in the day, and more regular sleep times.";
+  } else if (spread > 3) {
+    quality = "Irregular sleep rhythm";
+    advice = "Your total sleep swings a lot across the week. Try keeping weekends closer to weekday timing.";
+  }
+  sleepQualityReport.innerHTML = `<strong>${quality}</strong><br/>Weekly average: ${avg.toFixed(1)} h<br/>Variation: ${spread.toFixed(1)} h<br/><br/>${advice}`;
+}
+
+function renderSleepWeekly() {
+  if (!sleepWeeklySummary) return;
+  const history = loadJson("sleepWeeklyHistory", []);
+  if (!history.length) {
+    sleepWeeklySummary.innerHTML = "Save your Sunday to Saturday hours to see the graph.";
+    return;
+  }
+  sleepWeeklySummary.innerHTML = `<div class="sleep-graph">${history.map((item) => { const h = Number(item.hours || 0); return `<div class="sleep-bar-wrap"><div class="sleep-bar" style="height:${Math.max(12, h * 10)}px"></div><span>${escapeHtml(item.day.slice(0, 3))}</span><strong>${h}</strong></div>`; }).join("")}</div>`;
+}
+
+sleepForm?.addEventListener("submit", (e) => {
+  if (!document.getElementById("sleepSunday")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const history = SLEEP_DAYS.map((day) => ({ day, hours: Number(document.getElementById(`sleep${day}`)?.value || 0) }));
+  saveJson("sleepWeeklyHistory", history);
+  state.sleepPlan = { weeklyHours: history, newBed: "23:00", newWake: "07:00" };
+  state.sleepTouches = [];
+  renderSleepPlan();
+  renderSleepQuality();
+  renderSleepWeekly();
+  scheduleAppStateSync();
+}, true);
+
+document.getElementById("resetSleepBtn")?.addEventListener("click", () => {
+  SLEEP_DAYS.forEach((day) => {
+    const input = document.getElementById(`sleep${day}`);
+    if (input) input.value = "8";
+  });
+  saveJson("sleepWeeklyHistory", []);
+  state.sleepPlan = null;
+  state.sleepTouches = [];
+  renderSleepPlan();
+  renderSleepQuality();
+  renderSleepWeekly();
+  scheduleAppStateSync();
+});
+
+document.getElementById("resetMoodBtn")?.addEventListener("click", () => {
+  state.moodEntries = [];
+  selectedMoodEmoji = null;
+  moodForm?.reset();
+  if (moodScoreInput) moodScoreInput.value = 3;
+  if (moodScoreLabel) moodScoreLabel.textContent = "3";
+  document.querySelectorAll(".mood-emoji-btn").forEach((btn) => btn.classList.remove("selected"));
+  document.getElementById("moodEmojiSelected").textContent = "";
+  renderMoodLog();
+  renderMoodSummary();
+  scheduleAppStateSync();
+});
+
+function getChatbotReply(text) {
+  const t = String(text || "").trim().toLowerCase();
+  if (!t) return "I'm here for you. Tell me what happened today and how it felt. 💙";
+  if (/^(hi|hello|hey)\b/.test(t)) return "Hi! How are you feeling right now? 💛";
+  if (/sad|cry|down|hurt|upset|broken/.test(t)) return "That sounds heavy. 💙 Try naming the biggest feeling in one word first, then tell me what triggered it. We can slow it down together.";
+  if (/anxious|anxiety|panic|worried|nervous|overthinking/.test(t)) return "It sounds like your mind is running fast. 🌿 Try this with me: inhale for 4, hold for 4, exhale for 6. What thought is repeating the most?";
+  if (/angry|mad|furious|annoyed|frustrated/.test(t)) return "You sound really frustrated. ❤️ Before reacting, it may help to pause, unclench your jaw, and decide whether you need distance, clarity, or support.";
+  if (/tired|sleepy|exhausted|burnt out|burned out/.test(t)) return "You sound drained. 😴 Today may be more about recovery than pushing harder. Have you eaten, had water, or rested at all?";
+  if (/stress|stressed|pressure|overwhelmed/.test(t)) return "When everything feels urgent, pick just one next step. 🌼 What's the smallest thing you can finish in 10 minutes?";
+  if (/family|mom|dad|parents|relationship|partner|friend/.test(t)) return "Relationships can hit hard emotionally. 💞 Are you feeling unheard, disappointed, or worried about conflict?";
+  if (/study|exam|school|college|work|office|boss/.test(t)) return "That sounds like performance pressure. 📚 It may help to split it into what must be done today and what can wait. Want to talk through the top priority?";
+  if (/thank/.test(t)) return "Always. 🌟 I'm glad you reached out.";
+  if (/bye|goodnight|gn|see you/.test(t)) return "Take care of yourself. 🌙 I hope the rest of your day feels gentler.";
+  return `I hear you. ${text.length > 80 ? "There is a lot sitting underneath that message." : "That sounds important."} 💛 Tell me which part feels biggest right now: the situation, the emotion, or the fear about what happens next?`;
+}
+
+document.querySelector('.tab-btn[data-tab="riskRadar"]')?.replaceChildren(document.createTextNode("Food Analysis"));
+if (document.querySelector("#riskRadar h2")) document.querySelector("#riskRadar h2").textContent = "Food Analysis";
+if (document.querySelector("#workoutSleep .panel-right h3")) document.querySelector("#workoutSleep .panel-right h3").textContent = "Sleep Tracker";
+if (sleepTouchLog) {
+  sleepTouchLog.style.display = "none";
+  if (sleepTouchLog.previousElementSibling) sleepTouchLog.previousElementSibling.style.display = "none";
+}
+if (sleepWeeklySummary?.previousElementSibling) sleepWeeklySummary.previousElementSibling.textContent = "Weekly sleep graph";
+if (sleepQualityReport?.previousElementSibling) sleepQualityReport.previousElementSibling.textContent = "Sleep quality report";
+renderFriendList();
+
+function renderRaceTrack() {
+  if (!raceTrack) return;
+  raceTrack.innerHTML = "";
+  const entryObjects = Array.isArray(state.racerEntries) && state.racerEntries.length
+    ? [...state.racerEntries].sort((a, b) => b.points - a.points)
+    : Object.entries(state.racers).map(([name, score], index) => ({ id: `legacy-${index}`, name, points: Number(score || 0) })).sort((a, b) => b.points - a.points);
+  const entries = entryObjects;
+  if (entries.length === 0) {
+    raceTrack.innerHTML = '<p class="hint">Complete workouts to earn points! Scores sync from the database.</p>';
+    return;
+  }
+  const finishLine = 100;
+  entries.forEach((entry, idx) => {
+    const row = document.createElement("div");
+    row.className = "race-row";
+    const crown = idx === 0 ? '<span class="crown">🏆</span>' : "";
+    const safePoints = Math.max(0, Math.min(finishLine, Number(entry.points || 0)));
+    const width = Math.max(14, Math.min(100, (safePoints / finishLine) * 100));
+    row.innerHTML = `
+      <div class="race-label">
+        <span class="name">${escapeHtml(entry.name)} ${crown}</span>
+        <span>${safePoints}/100 pts</span>
+      </div>
+      <div class="race-track-bar">
+        <div class="race-car" style="width:${width}%;">
+          <span class="race-car-emoji">🏎️</span>
+        </div>
+        <div class="race-finish">100</div>
+      </div>
+    `;
+    raceTrack.appendChild(row);
+  });
+}
+
+window.addEventListener("firebase-auth-changed", async (event) => {
+  const user = event?.detail?.user || null;
+  if (!user) {
+    resetSessionViewState();
+    if (typeof stopFriendScoreListener === "function") {
+      stopFriendScoreListener();
+      stopFriendScoreListener = null;
+    }
+    return;
+  }
+  resetSessionViewState();
+  await loadAppStateFromRealtimeDb();
+  renderFoodLog();
+  updateFoodSummary();
+  renderMoodLog();
+  renderMoodSummary();
+  renderSleepPlan();
+  renderSleepQuality();
+  renderSleepWeekly();
+  renderFriendList();
+  await refreshRaceTrackFromFriends();
+  subscribeToFriendScoreUpdates();
+  if (document.getElementById("riskRadar")?.classList.contains("active")) {
+    initRiskRadar();
+  }
 });
 
 initFirebaseIfConfigured();

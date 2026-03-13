@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LifeQuest Health Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <section id="login-section" class="highlight-card" style="max-width: 520px; margin: 32px auto;">
+    <h2>Sign In</h2>
+    <p class="hint">Sign in with Google to sync your health tracker data with Firebase Realtime Database.</p>
+    <button type="button" onclick="signInWithGoogle()">Continue with Google</button>
+  </section>
+
+  <div id="app-section" class="app-shell" style="display: none;">
+    <header class="app-header">
+      <div class="header-main">
+        <div>
+          <h1>LifeQuest Health Hub</h1>
+          <p class="tagline">Turn your body into a game board for your dream lifestyle.</p>
+        </div>
+        <div class="auth-pill">
+          <span id="user-name" class="hint"></span>
+          <span id="googleUserLabel" class="hint"></span>
+          <button id="signOutBtn" type="button" class="secondary-btn small-btn" onclick="signOutUser()">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="bodyTracker">Humanoid</button>
+        <button class="tab-btn" data-tab="riskRadar">Food Analysis</button>
+        <button class="tab-btn" data-tab="stressMood">Stress & Mood</button>
+        <button class="tab-btn" data-tab="workoutSleep">Workout & Sleep</button>
+        <button class="tab-btn" data-tab="geoRiskScoreboard">GeoRisk & Scoreboard</button>
+        <button class="tab-btn" data-tab="chatbotPorosity">Therapist & Hair</button>
+      </nav>
+
+      <!-- Humanoid body tracker -->
+      <section id="bodyTracker" class="tab-panel active">
+        <h2>Epic Fit</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <svg
+              id="bodySvg"
+              viewBox="0 0 200 420"
+              class="body-svg"
+              aria-labelledby="bodyTitle"
+            >
+              <title id="bodyTitle">Epic Fit Progress</title>
+
+              <!-- Head / Face (connected to neck) -->
+              <g id="faceGroup" class="body-part">
+                <circle id="face" cx="100" cy="52" r="24" class="body-part part-face" />
+                <circle id="eyeLeft" cx="92" cy="48" r="3" class="body-part part-eye" />
+                <circle id="eyeRight" cx="108" cy="48" r="3" class="body-part part-eye" />
+                <path id="mouth" d="M92 60 A 8 6 0 0 0 108 60" class="body-part part-mouth" />
+              </g>
+
+              <!-- Neck (connects head to torso) -->
+              <rect id="neck" x="92" y="76" width="16" height="14" rx="4" class="body-part part-torso" />
+
+              <!-- Torso (connects to neck and legs) -->
+              <rect id="torso" x="72" y="90" width="56" height="102" rx="14" class="body-part part-torso" />
+
+              <!-- Heart -->
+              <path id="heart" class="body-part part-heart"
+                d="M88 112 C88 106, 96 106, 96 112 C96 106, 104 106, 104 112 C104 120, 96 124, 96 130 C96 124, 88 120, 88 112 Z" />
+
+              <!-- Kidneys (oval, lower) -->
+              <ellipse id="kidneyLeft" cx="88" cy="172" rx="6" ry="9" class="body-part part-kidney" />
+              <ellipse id="kidneyRight" cx="112" cy="172" rx="6" ry="9" class="body-part part-kidney" />
+
+              <!-- Arms (kept straight beside the body) -->
+              <rect id="armLeft" x="44" y="100" width="20" height="102" rx="8" class="body-part part-limb" />
+              <ellipse id="palmLeft" cx="54" cy="210" rx="10" ry="8" class="body-part part-limb" />
+              <rect id="armRight" x="136" y="100" width="20" height="102" rx="8" class="body-part part-limb" />
+              <ellipse id="palmRight" cx="146" cy="210" rx="10" ry="8" class="body-part part-limb" />
+
+              <!-- Legs (connected at hips) -->
+              <rect id="legLeft" x="76" y="192" width="20" height="108" rx="8" class="body-part part-limb" />
+              <rect id="legRight" x="104" y="192" width="20" height="108" rx="8" class="body-part part-limb" />
+            </svg>
+          </div>
+          <div class="panel-right">
+            <h3>Track your day</h3>
+            <p>Add anything you did today. The body lights up based on what your activity supports.</p>
+            <form id="bodyActivityForm" class="stack-form">
+              <div class="field-row">
+                <label>Activity name</label>
+                <input type="text" id="activityName" placeholder="e.g. Skincare, water goal, breathing, abs workout, walk" />
+              </div>
+              <div class="field-row">
+                <label>What did it mainly work on?</label>
+                <select id="activityFocus">
+                  <option value="face">Skincare / face exercise / face puzzles</option>
+                  <option value="heart">Breathing exercise (heart)</option>
+                  <option value="kidneys">Drinking water (kidneys)</option>
+                  <option value="hands">Hand / arm workout</option>
+                  <option value="legs">Leg workout</option>
+                  <option value="abs">Abs workout (core)</option>
+                </select>
+              </div>
+              <button type="submit">Add activity</button>
+            </form>
+
+            <div id="bodyProgressCount" class="highlight-card"></div>
+            <div id="bodyActivityLog"></div>
+            <div id="bodyDailyReport" class="highlight-card"></div>
+
+            <button id="resetBodyBtn" class="secondary-btn">Reset today's body progress</button>
+            <div id="bodyQuestMessage" class="message-area"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Food Analysis -->
+      <section id="riskRadar" class="tab-panel">
+        <h2>🍎 Risk Radar – Food & Health</h2>
+        <nav class="risk-radar-nav">
+          <button type="button" class="risk-tab active" data-risk="profile">Profile</button>
+          <button type="button" class="risk-tab" data-risk="search">Meal Tracker</button>
+          <button type="button" class="risk-tab" data-risk="risks">Risk Factors</button>
+        </nav>
+        <div id="riskRadarContent" class="risk-radar-content"></div>
+      </section>
+
+      <!-- Stress & mood -->
+      <section id="stressMood" class="tab-panel">
+        <h2>Stress & Mood Compass</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Log your mood (3x per day)</h3>
+            <form id="moodForm" class="stack-form">
+              <div class="field-row">
+                <label>How do you feel? Pick an emoji</label>
+                <div class="mood-emoji-row">
+                  <button type="button" class="mood-emoji-btn" data-emoji="sad" title="Sad">😢</button>
+                  <button type="button" class="mood-emoji-btn" data-emoji="happy" title="Happy">😊</button>
+                  <button type="button" class="mood-emoji-btn" data-emoji="angry" title="Angry">😠</button>
+                  <button type="button" class="mood-emoji-btn" data-emoji="crying" title="Crying">😭</button>
+                  <button type="button" class="mood-emoji-btn" data-emoji="scared" title="Scared">😨</button>
+                  <button type="button" class="mood-emoji-btn" data-emoji="laughing" title="Laughing">😂</button>
+                </div>
+                <span id="moodEmojiSelected" class="hint"></span>
+              </div>
+              <div class="field-row">
+                <label>Time of day</label>
+                <select id="moodTime">
+                  <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Mood (1 = low, 5 = great)</label>
+                <input type="range" id="moodScore" min="1" max="5" value="3" />
+                <span id="moodScoreLabel">3</span>
+              </div>
+              <div class="field-row">
+                <label>What's on your mind?</label>
+                <textarea id="moodNote" rows="2" placeholder="Optional note"></textarea>
+              </div>
+              <div class="button-row">
+                <button type="submit">Save mood</button>
+                <button type="button" id="resetMoodBtn" class="secondary-btn">Reset</button>
+              </div>
+            </form>
+          </div>
+          <div class="panel-right">
+            <h3>Today's stress report</h3>
+            <div id="moodLog"></div>
+            <div id="moodSummary" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Workout & sleep -->
+      <section id="workoutSleep" class="tab-panel">
+        <h2>Workout Planner & Sleep Designer</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Workout Planner</h3>
+            <form id="workoutForm" class="stack-form">
+              <div class="field-row">
+                <label>Do you have any disabilities?</label>
+                <select id="workoutDisabilityYesNo">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+                <div id="workoutDisabilityOptions" class="field-row" style="display:none;">
+                  <select id="workoutDisability">
+                    <option value="">Select disability</option>
+                    <option value="knee pain">Knee pain / ACL / Meniscus</option>
+                    <option value="back pain">Back pain / Spine / Sciatica</option>
+                    <option value="asthma">Asthma / Breathing issues</option>
+                    <option value="wheelchair">Wheelchair user</option>
+                    <option value="other">Other (describe below)</option>
+                  </select>
+                  <input type="text" id="workoutDisabilityOther" placeholder="Describe if Other" style="display:none;" />
+                </div>
+              </div>
+              <div class="field-row">
+                <label>What time do you normally work out?</label>
+                <input type="time" id="workoutTime" value="18:00" />
+                <button type="button" id="enableWorkoutRemindersBtn" class="secondary-btn small-btn">Enable reminders</button>
+                <div class="hint" id="workoutReminderHint"></div>
+              </div>
+              <div class="field-row">
+                <label>Level</label>
+                <select id="workoutLevel">
+                  <option value="very-basic">Very basic</option>
+                  <option value="basic">Basic</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="inter-advanced">Inter-advanced</option>
+                  <option value="advanced">Advanced</option>
+                  <option value="intense">Intense</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Goal</label>
+                <select id="workoutGoal">
+                  <option value="general">General health</option>
+                  <option value="fat-loss">Fat loss</option>
+                  <option value="muscle">Muscle / strength</option>
+                  <option value="endurance">Endurance</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Weekly time (hours)</label>
+                <input type="number" id="workoutHours" min="1" max="14" value="4" />
+              </div>
+              <button type="submit">Generate plan</button>
+            </form>
+            <div id="workoutPlanSummary" class="highlight-card"></div>
+            <div id="workoutPlanUI" class="workout-plan-ui"></div>
+          </div>
+          <div class="panel-right">
+            <h3>😴 Sleep Tracker</h3>
+            <form id="sleepForm" class="stack-form">
+              <div class="field-row">
+                <label>Sunday sleep hours</label>
+                <input type="number" id="sleepSunday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Monday sleep hours</label>
+                <input type="number" id="sleepMonday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Tuesday sleep hours</label>
+                <input type="number" id="sleepTuesday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Wednesday sleep hours</label>
+                <input type="number" id="sleepWednesday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Thursday sleep hours</label>
+                <input type="number" id="sleepThursday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Friday sleep hours</label>
+                <input type="number" id="sleepFriday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="field-row">
+                <label>Saturday sleep hours</label>
+                <input type="number" id="sleepSaturday" min="0" max="16" step="0.5" value="8" />
+              </div>
+              <div class="button-row">
+                <button type="submit">Save sleep week</button>
+                <button type="button" id="resetSleepBtn" class="secondary-btn">Reset</button>
+              </div>
+            </form>
+            <div id="sleepPlan" class="highlight-card"></div>
+            <h4 style="margin-top:14px;">📱 Night phone usage</h4>
+            <div id="sleepTouchLog" class="highlight-card" style="display:none;"></div>
+            <h4 style="margin-top:14px;">😊 Sleep quality report</h4>
+            <div id="sleepQualityReport" class="highlight-card"></div>
+            <h4 style="margin-top:14px;">📅 Weekly sleep summary</h4>
+            <div id="sleepWeeklySummary" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Geo health risk & scoreboard -->
+      <section id="geoRiskScoreboard" class="tab-panel">
+        <h2>Health GeoRisk & Race Track</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>City health risk map</h3>
+            <form id="geoForm" class="stack-form">
+              <div class="field-row">
+                <label>City</label>
+                <input type="text" id="cityName" placeholder="e.g. Delhi, London, Mumbai, Dubai" />
+              </div>
+              <div class="field-row">
+                <label>Country</label>
+                <input type="text" id="countryName" placeholder="Optional" />
+              </div>
+              <button type="submit">Check risks</button>
+            </form>
+            <div id="geoResult" class="highlight-card"></div>
+          </div>
+          <div class="panel-right">
+            <h3>Friend Leaderboard</h3>
+            <p class="hint">Add friends by username or email, then compare your points on the race track.</p>
+            <div class="stack-form">
+              <div class="field-row">
+                <label>Add friend by username or email</label>
+                <input type="text" id="friendSearchInput" placeholder="e.g. sam@gmail.com or Samhita" />
+              </div>
+              <div class="button-row">
+                <button type="button" id="addFriendBtn">Add friend</button>
+                <button type="button" id="refreshFriendsBtn" class="secondary-btn">Refresh</button>
+              </div>
+            </div>
+            <div id="friendStatus" class="hint"></div>
+            <div id="friendList" class="highlight-card"></div>
+            <p class="hint">Scores sync from database. Complete workouts to earn points! 🏆</p>
+            <div id="raceTrack" class="race-track-container"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chatbot & hair porosity -->
+      <section id="chatbotPorosity" class="tab-panel">
+        <h2>Therapist Bot & Hair Lab</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Mini therapist chatbot</h3>
+            <div id="chatWindow" class="chat-window"></div>
+            <form id="chatForm" class="chat-form">
+              <input type="text" id="chatInput" placeholder="Tell me what's stressing you…" autocomplete="off" />
+              <button type="submit">Send</button>
+            </form>
+          </div>
+          <div class="panel-right">
+            <h3>Hair porosity checker</h3>
+            <ol class="porosity-steps">
+              <li>Take a clean strand of dry hair (no oil/conditioner).</li>
+              <li>Drop it into a clear glass of room-temperature water.</li>
+              <li>Wait 2–4 minutes, then see what it does.</li>
+            </ol>
+            <form id="porosityForm" class="stack-form">
+              <div class="field-row">
+                <label>What happened?</label>
+                <select id="porosityResult">
+                  <option value="floats">It kept floating at the top</option>
+                  <option value="middle">It stayed in the middle</option>
+                  <option value="sinks">It sank to the bottom</option>
+                </select>
+              </div>
+              <button type="submit">Analyse hair type</button>
+            </form>
+            <div id="porosityAdvice" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="globalPopup" class="global-popup hidden" role="alert">
+      <div class="popup-content">
+        <h2 id="popupTitle"></h2>
+        <p id="popupMessage"></p>
+        <button id="closePopupBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth,
+      setPersistence,
+      browserLocalPersistence,
+      signInWithPopup,
+      GoogleAuthProvider,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getDatabase,
+      ref,
+      set,
+      get,
+      update,
+      remove,
+      onValue
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBNyFBqmbo7AnaeUMCv74k7dqFD7Xdwonk",
+      authDomain: "health-and-well-being-822e7.firebaseapp.com",
+      databaseURL: "https://health-and-well-being-822e7-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "health-and-well-being-822e7",
+      storageBucket: "health-and-well-being-822e7.firebasestorage.app",
+      messagingSenderId: "405802233265",
+      appId: "1:405802233265:web:ffb3609f00bc6b77e62190"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: "select_account"
+    });
+    await setPersistence(auth, browserLocalPersistence);
+
+    window.signInWithGoogle = async function() {
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        await saveUser(user);
+      } catch (error) {
+        console.error("Sign in error:", error.message);
+        alert("Sign in failed: " + error.message);
+      }
+    };
+
+    window.signOutUser = async function() {
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.error("Sign out error:", error.message);
+      }
+    };
+
+    async function saveUser(user) {
+      const userRef = ref(db, "users/" + user.uid);
+      const snapshot = await get(userRef);
+      if (!snapshot.exists()) {
+        await set(userRef, {
+          uid: user.uid,
+          name: user.displayName,
+          email: user.email,
+          photo: user.photoURL,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString()
+        });
+      } else {
+        await update(userRef, {
+          lastLogin: new Date().toISOString()
+        });
+      }
+    }
+
+    window.saveUserData = async function(dataKey, data) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const dataRef = ref(db, "users/" + user.uid + "/" + dataKey);
+      await set(dataRef, data);
+    };
+
+    window.getUserData = async function(dataKey) {
+      const user = auth.currentUser;
+      if (!user) return null;
+      const dataRef = ref(db, "users/" + user.uid + "/" + dataKey);
+      const snapshot = await get(dataRef);
+      return snapshot.exists() ? snapshot.val() : null;
+    };
+
+    window.listenToUserData = function(dataKey, callback) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const dataRef = ref(db, "users/" + user.uid + "/" + dataKey);
+      onValue(dataRef, (snapshot) => {
+        callback(snapshot.val());
+      });
+    };
+
+    window.deleteUserData = async function(dataKey) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const dataRef = ref(db, "users/" + user.uid + "/" + dataKey);
+      await remove(dataRef);
+    };
+
+    window.findUsersByNameOrEmail = async function(queryText) {
+      const query = String(queryText || "").trim().toLowerCase();
+      if (!query) return [];
+      const snapshot = await get(ref(db, "users"));
+      if (!snapshot.exists()) return [];
+      const currentUid = auth.currentUser?.uid || "";
+      const users = snapshot.val() || {};
+      return Object.values(users)
+        .filter((user) => user && user.uid && user.uid !== currentUid)
+        .filter((user) => {
+          const name = String(user.name || "").toLowerCase();
+          const email = String(user.email || "").toLowerCase();
+          return name.includes(query) || email.includes(query);
+        })
+        .slice(0, 10)
+        .map((user) => ({
+          uid: user.uid,
+          name: user.name || "Unknown user",
+          email: user.email || "",
+          points: Number(user.scoreboard?.points || 0),
+        }));
+    };
+
+    window.getUsersByUids = async function(uids) {
+      const unique = [...new Set((uids || []).filter(Boolean))];
+      if (!unique.length) return [];
+      const results = await Promise.all(unique.map(async (uid) => {
+        const snapshot = await get(ref(db, "users/" + uid));
+        if (!snapshot.exists()) return null;
+        const user = snapshot.val();
+        return {
+          uid,
+          name: user.name || "Unknown user",
+          email: user.email || "",
+          points: Number(user.scoreboard?.points || 0),
+        };
+      }));
+      return results.filter(Boolean);
+    };
+
+    window.listenToUsersByUids = function(uids, callback) {
+      const unique = [...new Set((uids || []).filter(Boolean))];
+      if (!unique.length) return () => {};
+      const unsubscribers = [];
+      const latest = new Map();
+
+      unique.forEach((uid) => {
+        const userRef = ref(db, "users/" + uid);
+        const unsubscribe = onValue(userRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const user = snapshot.val();
+            latest.set(uid, {
+              uid,
+              name: user.name || "Unknown user",
+              email: user.email || "",
+              points: Number(user.scoreboard?.points || 0),
+            });
+          } else {
+            latest.delete(uid);
+          }
+          callback(Array.from(latest.values()));
+        });
+        unsubscribers.push(unsubscribe);
+      });
+
+      return () => {
+        unsubscribers.forEach((unsubscribe) => {
+          if (typeof unsubscribe === "function") unsubscribe();
+        });
+      };
+    };
+
+    window.saveCurrentUserScore = async function(points) {
+      const user = auth.currentUser;
+      if (!user) return;
+      await update(ref(db, "users/" + user.uid), {
+        scoreboard: {
+          points: Number(points || 0),
+          updatedAt: new Date().toISOString()
+        }
+      });
+    };
+
+    onAuthStateChanged(auth, (user) => {
+      window.currentFirebaseUser = user || null;
+      if (user) {
+        document.getElementById("login-section").style.display = "none";
+        document.getElementById("app-section").style.display = "block";
+        const userName = document.getElementById("user-name");
+        const userLabel = document.getElementById("googleUserLabel");
+        if (userName) userName.textContent = user.displayName || "Signed in";
+        if (userLabel) userLabel.textContent = user.email || "";
+      } else {
+        document.getElementById("login-section").style.display = "block";
+        document.getElementById("app-section").style.display = "none";
+        const userName = document.getElementById("user-name");
+        const userLabel = document.getElementById("googleUserLabel");
+        if (userName) userName.textContent = "";
+        if (userLabel) userLabel.textContent = "";
+      }
+      window.dispatchEvent(new CustomEvent("firebase-auth-changed", { detail: { user: user || null } }));
+    });
+
+    window.auth = auth;
+    window.db = db;
+  </script>
+
+  <script>
+    window.__CLAUDE_PROXY_URL__ = null;
+  </script>
+
+  <script src="main.js"></script>
+</body>
+</html>
