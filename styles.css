@@ -261,11 +261,6 @@ button:active {
   box-shadow: none;
 }
 
-.secondary-btn.small-btn {
-  padding-inline: 10px;
-  font-size: 0.7rem;
-}
-
 .secondary-btn.small-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -320,7 +315,6 @@ button:active {
   stroke-width: 2;
 }
 
-/* Epic Fit colours */
 .active-face {
   fill: #ffb3d9;
   stroke: rgba(255, 255, 255, 0.5);
@@ -362,7 +356,6 @@ button:active {
     drop-shadow(0 0 16px rgba(96, 165, 250, 0.35));
 }
 
-/* Make Epic Fit headings less "shouty" */
 #bodyTracker h2,
 #bodyTracker h3 {
   text-transform: none;
@@ -374,7 +367,6 @@ button:active {
   margin-top: 10px;
 }
 
-/* App-like date strip */
 .date-strip {
   display: flex;
   gap: 10px;
@@ -473,7 +465,6 @@ button:active {
   margin-top: 10px;
 }
 
-/* Section cards like Warm Up / Workout / Stretch */
 .section-card {
   margin-top: 12px;
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -488,7 +479,7 @@ button:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 12px;
+  padding: 12px;
   user-select: none;
 }
 .section-card summary::-webkit-details-marker {
@@ -534,7 +525,6 @@ button:active {
   gap: 10px;
 }
 
-/* Exercise rows with thumbnails */
 .exercise-row {
   border-radius: 16px;
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -589,9 +579,6 @@ button:active {
   margin-top: 3px;
   color: var(--muted);
   font-size: 0.78rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .exercise-controls {
@@ -654,121 +641,6 @@ button:active {
   transition: width 0.2s ease-out;
 }
 
-.workout-progress-sub {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.workout-day {
-  margin-top: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 16px;
-  overflow: hidden;
-  background: rgba(15, 23, 42, 0.7);
-}
-
-.workout-day summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  user-select: none;
-}
-
-.workout-day summary::-webkit-details-marker {
-  display: none;
-}
-
-.workout-day-left {
-  font-weight: 600;
-}
-
-.workout-day-right {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.workout-list {
-  padding: 0 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.workout-item {
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(2, 6, 23, 0.85);
-  padding: 10px 10px 10px;
-  display: grid;
-  gap: 8px;
-}
-
-.workout-item.done {
-  border-color: rgba(74, 222, 128, 0.35);
-  background: radial-gradient(circle at 0 0, rgba(74, 222, 128, 0.12), transparent),
-    rgba(2, 6, 23, 0.85);
-}
-
-.workout-check {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.workout-check input {
-  accent-color: #ffb3d9;
-}
-
-.workout-name {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.workout-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.workout-chip {
-  border-radius: 999px;
-  padding: 2px 8px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(15, 23, 42, 0.82);
-  font-size: 0.74rem;
-}
-
-.workout-chip.subtle {
-  color: var(--muted);
-}
-
-.workout-timer {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.9rem;
-  color: #e5e7eb;
-}
-
-.workout-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.workout-actions button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* Confetti */
 .confetti-layer {
   position: fixed;
   width: 1px;
@@ -798,28 +670,6 @@ button:active {
   }
 }
 
-.quest-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.quest-list label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-}
-
-.quest-list input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
-/* Food log */
 #foodLog {
   margin-top: 10px;
   max-height: 150px;
@@ -839,7 +689,6 @@ button:active {
   border-bottom: none;
 }
 
-/* Mood log */
 #moodLog {
   margin-top: 8px;
   max-height: 170px;
@@ -852,10 +701,6 @@ button:active {
   align-items: center;
   padding: 4px 0;
   border-bottom: 1px dashed rgba(148, 163, 184, 0.25);
-}
-
-.mood-row:last-child {
-  border-bottom: none;
 }
 
 .mood-tag {
@@ -881,19 +726,16 @@ button:active {
   color: #bbf7d0;
 }
 
-/* Sleep */
 #sleepTouchLog {
   margin-top: 6px;
   font-size: 0.78rem;
   color: var(--muted);
 }
 
-/* Geo risk */
 #geoResult ul {
   padding-left: 18px;
 }
 
-/* Race track */
 #raceTrack {
   margin-top: 10px;
   display: flex;
@@ -937,19 +779,119 @@ button:active {
   top: 1px;
   bottom: 1px;
   left: 0;
-  width: 20%;
+  min-width: 50px;
   border-radius: 999px;
   background: linear-gradient(90deg, #22c55e, #a3e635);
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 6px;
-  font-size: 0.72rem;
+  padding-right: 8px;
+  font-size: 1.1rem;
   color: #020617;
+  transition: width 0.4s ease-out;
 }
 
-/* Chat */
+.race-track-bar {
+  min-height: 32px;
+}
+
+.race-track-container {
+  margin-top: 12px;
+}
+
+/* Mood emoji row */
+.mood-emoji-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.mood-emoji-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 2px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.8);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: grid;
+  place-items: center;
+}
+
+.mood-emoji-btn:hover {
+  border-color: var(--accent);
+  transform: scale(1.08);
+}
+
+.mood-emoji-btn.selected {
+  border-color: var(--accent);
+  background: rgba(255, 138, 61, 0.2);
+  box-shadow: 0 0 16px rgba(255, 138, 61, 0.3);
+}
+
+/* Risk Radar */
+.risk-radar-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.risk-tab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.risk-tab.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(255, 138, 61, 0.15);
+}
+
+.risk-tab:hover {
+  color: var(--text);
+}
+
+.risk-radar-content {
+  min-height: 200px;
+}
+
+.exercise-checkbox {
+  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.exercise-check-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.exercise-checkbox:checked + .exercise-name {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.checkmark-animate {
+  animation: checkPop 0.4s ease-out;
+}
+
+@keyframes checkPop {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .chat-window {
   height: 220px;
   border-radius: 14px;
@@ -998,7 +940,6 @@ button:active {
   flex: 1;
 }
 
-/* Porosity */
 .porosity-steps {
   margin-top: 0;
   padding-left: 20px;
@@ -1006,7 +947,6 @@ button:active {
   font-size: 0.8rem;
 }
 
-/* Popup */
 .global-popup {
   position: fixed;
   inset: 0;
@@ -1026,7 +966,7 @@ button:active {
   background: radial-gradient(circle at 0 0, var(--accent-soft), #020617);
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 18px 22px 18px;
+  padding: 18px 22px;
   max-width: 380px;
   text-align: center;
   box-shadow: var(--shadow-soft);
@@ -1045,4 +985,3 @@ button:active {
 #closePopupBtn {
   width: 100%;
 }
-

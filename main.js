@@ -1,7 +1,7 @@
 // Simple state
 const state = {
   bodyQuestsCompleted: 0,
-  totalBodyQuests: 5,
+  totalBodyQuests: 6,
   calorieTarget: null,
   todayCalories: 0,
   foods: [],
@@ -11,7 +11,6 @@ const state = {
   racers: {},
 };
 
-// Optional Firebase (anonymous "open sign-in")
 let firebaseEnabled = false;
 let firestore = null;
 let currentUid = null;
@@ -32,7 +31,6 @@ async function initFirebaseIfConfigured() {
     const cred = await auth.signInAnonymously();
     currentUid = cred?.user?.uid ?? auth.currentUser?.uid ?? null;
 
-    // Sync racers in realtime (shared scoreboard)
     firestore.collection("public").doc("racers").onSnapshot((snap) => {
       const data = snap.data();
       if (data && typeof data === "object" && data.racers && typeof data.racers === "object") {
@@ -50,7 +48,6 @@ async function initFirebaseIfConfigured() {
     firebaseEnabled = false;
     firestore = null;
     currentUid = null;
-    // Fallback to local mode silently
   }
 }
 
@@ -62,7 +59,6 @@ function setupGoogleAuthUI() {
     const user = firebaseAuth.currentUser;
     try {
       if (user && !user.isAnonymous) {
-        // Signed in with Google already -> sign out
         await firebaseAuth.signOut();
         return;
       }
@@ -70,10 +66,7 @@ function setupGoogleAuthUI() {
       await firebaseAuth.signInWithPopup(provider);
     } catch (e) {
       console.error("Google sign-in failed", e);
-      showPopup(
-        "Google sign-in",
-        "Could not sign in with Google right now. You can still use the app in guest mode."
-      );
+      showPopup("Google sign-in", "Could not sign in with Google. You can still use the app in guest mode.");
     }
   });
 }
@@ -87,27 +80,31 @@ function updateGoogleAuthLabel(user) {
     label.textContent = "";
   } else {
     btn.textContent = "Sign out";
-    const email = user.email || "Google account connected";
-    label.textContent = email;
+    label.textContent = user.email || "Google account connected";
   }
 }
 
-// Tabs
-document.querySelectorAll(".tab-btn").forEach((btn) => {
+document.querySelectorAll(".mood-emoji-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document
-      .querySelectorAll(".tab-btn")
-      .forEach((b) => b.classList.remove("active"));
-    document
-      .querySelectorAll(".tab-panel")
-      .forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    const target = btn.getAttribute("data-tab");
-    document.getElementById(target).classList.add("active");
+    document.querySelectorAll(".mood-emoji-btn").forEach((b) => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    selectedMoodEmoji = btn.getAttribute("data-emoji");
+    document.getElementById("moodEmojiSelected").textContent = `Selected: ${btn.getAttribute("title")}`;
   });
 });
 
-// Global popup
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    const target = btn.getAttribute("data-tab");
+    const panel = document.getElementById(target);
+    if (panel) panel.classList.add("active");
+    if (target === "riskRadar") initRiskRadar();
+  });
+});
+
 const popupEl = document.getElementById("globalPopup");
 const popupTitleEl = document.getElementById("popupTitle");
 const popupMessageEl = document.getElementById("popupMessage");
@@ -129,7 +126,6 @@ const bodyProgressCount = document.getElementById("bodyProgressCount");
 const bodyActivityLog = document.getElementById("bodyActivityLog");
 const bodyDailyReport = document.getElementById("bodyDailyReport");
 
-// Track which regions have at least one logged activity
 const bodyRegionsHit = {
   face: false,
   heart: false,
@@ -139,34 +135,14 @@ const bodyRegionsHit = {
   abs: false,
 };
 
+let selectedMoodEmoji = null;
+
 const bodyActivities = [];
 
 function repaintBodyFromRegions() {
-  const idsToReset = [
-    "face",
-    "eyeLeft",
-    "eyeRight",
-    "mouth",
-    "heart",
-    "kidneyLeft",
-    "kidneyRight",
-    "armLeft",
-    "armRight",
-    "legLeft",
-    "legRight",
-    "torso",
-  ];
+  const idsToReset = ["face", "eyeLeft", "eyeRight", "mouth", "heart", "kidneyLeft", "kidneyRight", "armLeft", "armRight", "palmLeft", "palmRight", "legLeft", "legRight", "torso", "neck"];
   idsToReset.forEach((id) => {
-    document.getElementById(id)?.classList.remove(
-      "active-face",
-      "active-eye",
-      "active-mouth",
-      "active-heart",
-      "active-kidney",
-      "active-limb",
-      "active-abs",
-      "completed"
-    );
+    document.getElementById(id)?.classList.remove("active-face", "active-eye", "active-mouth", "active-heart", "active-kidney", "active-limb", "active-abs", "completed");
   });
 
   if (bodyRegionsHit.face) {
@@ -175,9 +151,7 @@ function repaintBodyFromRegions() {
     document.getElementById("eyeRight")?.classList.add("active-eye");
     document.getElementById("mouth")?.classList.add("active-mouth");
   }
-  if (bodyRegionsHit.heart) {
-    document.getElementById("heart")?.classList.add("active-heart");
-  }
+  if (bodyRegionsHit.heart) document.getElementById("heart")?.classList.add("active-heart");
   if (bodyRegionsHit.kidneys) {
     document.getElementById("kidneyLeft")?.classList.add("active-kidney");
     document.getElementById("kidneyRight")?.classList.add("active-kidney");
@@ -185,15 +159,14 @@ function repaintBodyFromRegions() {
   if (bodyRegionsHit.hands) {
     document.getElementById("armLeft")?.classList.add("active-limb");
     document.getElementById("armRight")?.classList.add("active-limb");
+    document.getElementById("palmLeft")?.classList.add("active-limb");
+    document.getElementById("palmRight")?.classList.add("active-limb");
   }
   if (bodyRegionsHit.legs) {
     document.getElementById("legLeft")?.classList.add("active-limb");
     document.getElementById("legRight")?.classList.add("active-limb");
   }
-  if (bodyRegionsHit.abs) {
-    // Light pink so heart/kidneys stay visible
-    document.getElementById("torso")?.classList.add("active-abs");
-  }
+  if (bodyRegionsHit.abs) document.getElementById("torso")?.classList.add("active-abs");
 
   const completedCount = Object.values(bodyRegionsHit).filter(Boolean).length;
   const total = Object.keys(bodyRegionsHit).length;
@@ -211,27 +184,11 @@ function repaintBodyFromRegions() {
   }
 
   if (completedCount === total) {
-    // Cute "everything complete" glow
-    [
-      "face",
-      "eyeLeft",
-      "eyeRight",
-      "mouth",
-      "heart",
-      "kidneyLeft",
-      "kidneyRight",
-      "armLeft",
-      "armRight",
-      "legLeft",
-      "legRight",
-      "torso",
-    ].forEach((id) => document.getElementById(id)?.classList.add("completed"));
-    bodyQuestMessage.textContent =
-      "Full body quest complete. You just lived the lifestyle most people only talk about.";
-    showPopup(
-      "Full Body Lit Up",
-      "Congratulations – you hit every body quest today. This is the lifestyle most people dream about but never execute."
+    ["face", "eyeLeft", "eyeRight", "mouth", "heart", "kidneyLeft", "kidneyRight", "armLeft", "armRight", "palmLeft", "palmRight", "legLeft", "legRight", "torso", "neck"].forEach((id) =>
+      document.getElementById(id)?.classList.add("completed")
     );
+    bodyQuestMessage.textContent = "Full body quest complete. You just lived the lifestyle most people only talk about.";
+    showPopup("Full Body Lit Up", "Congratulations – you hit every body quest today. This is the lifestyle most people dream about but never execute.");
   } else {
     bodyQuestMessage.textContent = `Progress: ${completedCount}/${total} done today.`;
   }
@@ -243,35 +200,20 @@ bodyActivityForm.addEventListener("submit", (e) => {
   const focus = document.getElementById("activityFocus").value;
   if (!focus) return;
 
-  // Map focus to regions
-  if (focus === "face") {
-    bodyRegionsHit.face = true;
-  } else if (focus === "heart") {
-    bodyRegionsHit.heart = true;
-  } else if (focus === "kidneys") {
-    bodyRegionsHit.kidneys = true;
-  } else if (focus === "hands") {
-    bodyRegionsHit.hands = true;
-  } else if (focus === "legs") {
-    bodyRegionsHit.legs = true;
-  } else if (focus === "abs") {
-    bodyRegionsHit.abs = true;
-  }
+  if (focus === "face") bodyRegionsHit.face = true;
+  else if (focus === "heart") bodyRegionsHit.heart = true;
+  else if (focus === "kidneys") bodyRegionsHit.kidneys = true;
+  else if (focus === "hands") bodyRegionsHit.hands = true;
+  else if (focus === "legs") bodyRegionsHit.legs = true;
+  else if (focus === "abs") bodyRegionsHit.abs = true;
 
-  bodyActivities.unshift({
-    name: name || "(no name)",
-    focus,
-    at: new Date(),
-  });
-
+  bodyActivities.unshift({ name: name || "(no name)", focus, at: new Date() });
   repaintBodyFromRegions();
   bodyActivityForm.reset();
 });
 
 resetBodyBtn.addEventListener("click", () => {
-  Object.keys(bodyRegionsHit).forEach((key) => {
-    bodyRegionsHit[key] = false;
-  });
+  Object.keys(bodyRegionsHit).forEach((k) => { bodyRegionsHit[k] = false; });
   bodyActivities.length = 0;
   repaintBodyFromRegions();
 });
@@ -283,63 +225,91 @@ function renderBodyActivityLog() {
     return;
   }
   const prettyFocus = (f) => {
-    if (f === "face") return "Face";
-    if (f === "heart") return "Heart";
-    if (f === "kidneys") return "Kidneys";
-    if (f === "hands") return "Hands / Arms";
-    if (f === "legs") return "Legs";
-    if (f === "abs") return "Abs";
-    return f;
+    const m = { face: "Face", heart: "Heart", kidneys: "Kidneys", hands: "Hands / Arms", legs: "Legs", abs: "Abs" };
+    return m[f] || f;
   };
-  const items = bodyActivities
-    .slice(0, 6)
-    .map((a) => `<div class="food-entry"><span>${a.name}</span><span>${prettyFocus(a.focus)}</span></div>`)
-    .join("");
+  const items = bodyActivities.slice(0, 6).map((a) => `<div class="food-entry"><span>${a.name}</span><span>${prettyFocus(a.focus)}</span></div>`).join("");
   bodyActivityLog.innerHTML = `<div style="margin-top:10px;"><strong>Recent:</strong></div>${items}`;
 }
 
 function renderBodyDailyReport() {
   if (!bodyDailyReport) return;
-  const done = Object.entries(bodyRegionsHit)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
-  const missing = Object.entries(bodyRegionsHit)
-    .filter(([, v]) => !v)
-    .map(([k]) => k);
+  const done = Object.entries(bodyRegionsHit).filter(([, v]) => v).map(([k]) => k);
+  const missing = Object.entries(bodyRegionsHit).filter(([, v]) => !v).map(([k]) => k);
 
   const benefits = {
-    face: "Face care supports skin barrier, confidence, and can reduce irritation/breakouts over time.",
-    heart: "Breathing work supports calm focus, lowers stress spikes, and helps cardio endurance.",
-    kidneys: "Hydration supports energy, digestion, skin, and reduces headache risk for many people.",
-    hands: "Arm/hand training supports upper-body strength, posture, and makes daily tasks feel easier.",
-    legs: "Leg training supports stamina, mobility, and overall energy (and often improves sleep).",
-    abs: "Core work supports posture, lower‑back comfort, and stability in other workouts.",
+    face: "Face care supports skin barrier and confidence.",
+    heart: "Breathing work supports calm focus and cardio endurance.",
+    kidneys: "Hydration supports energy, digestion, and skin.",
+    hands: "Arm/hand training supports upper-body strength and posture.",
+    legs: "Leg training supports stamina and mobility.",
+    abs: "Core work supports posture and lower-back comfort.",
   };
   const risks = {
-    face: "Ignoring face care can increase dryness, irritation, and acne triggers (especially with pollution/sweat).",
-    heart: "Skipping breathing work can make stress feel louder and recovery from workouts slower.",
-    kidneys: "Low water intake can lead to fatigue, headaches, constipation, and darker urine.",
-    hands: "Ignoring arms/hands can lead to weaker posture and faster fatigue during carrying/pushing/pulling.",
-    legs: "Skipping leg movement can increase stiffness and reduce stamina, especially with lots of sitting.",
-    abs: "Weak core can contribute to posture issues and lower‑back discomfort.",
+    face: "Ignoring face care can increase dryness and irritation.",
+    heart: "Skipping breathing can make stress feel louder.",
+    kidneys: "Low water can cause fatigue and headaches.",
+    hands: "Weak arms can lead to poor posture.",
+    legs: "Skipping legs can increase stiffness.",
+    abs: "Weak core can cause lower-back discomfort.",
   };
 
-  const benefitList = done.length
-    ? `<ul>${done.map((k) => `<li><strong>${k}</strong>: ${benefits[k]}</li>`).join("")}</ul>`
-    : "<div style='color:var(--muted)'>No tracked benefits yet — add your first activity above.</div>";
+  const benefitList = done.length ? `<ul>${done.map((k) => `<li><strong>${k}</strong>: ${benefits[k]}</li>`).join("")}</ul>` : "<div style='color:var(--muted)'>No tracked benefits yet.</div>";
+  const riskList = missing.length ? `<ul>${missing.map((k) => `<li><strong>${k}</strong>: ${risks[k]}</li>`).join("")}</ul>` : "<div style='color:var(--success)'><strong>Perfect day!</strong></div>";
 
-  const riskList = missing.length
-    ? `<ul>${missing.map((k) => `<li><strong>${k}</strong>: ${risks[k]}</li>`).join("")}</ul>`
-    : "<div style='color:var(--success)'><strong>Perfect day!</strong> You supported every part today.</div>";
-
-  bodyDailyReport.innerHTML = `
-    <strong>Daily report</strong><br/>
-    <div style="margin-top:8px;"><strong>Benefits unlocked:</strong>${benefitList}</div>
-    <div style="margin-top:8px;"><strong>What to watch if ignored:</strong>${riskList}</div>
-  `;
+  bodyDailyReport.innerHTML = `<strong>Daily report</strong><br/><div style="margin-top:8px;"><strong>Benefits:</strong>${benefitList}</div><div style="margin-top:8px;"><strong>Watch if ignored:</strong>${riskList}</div>`;
 }
 
-// FOOD TRACKER
+// RISK RADAR
+function initRiskRadar() {
+  const container = document.getElementById("riskRadarContent");
+  const tabs = document.querySelectorAll(".risk-tab");
+  if (!container) return;
+  const profile = loadJson("riskRadarProfile", { age: 30, sex: "male", height: 170, weight: 70, activity: 1.55 });
+  const render = (id) => {
+    if (id === "profile") {
+      container.innerHTML = `<div class="stack-form"><h3>Your health profile</h3>
+        <div class="field-row"><label>Age</label><input type="number" id="rrAge" value="${profile.age}" min="10" max="100" /></div>
+        <div class="field-row"><label>Sex</label><select id="rrSex"><option value="male" ${profile.sex==="male"?"selected":""}>Male</option><option value="female" ${profile.sex==="female"?"selected":""}>Female</option></select></div>
+        <div class="field-row"><label>Height (cm)</label><input type="number" id="rrHeight" value="${profile.height}" /></div>
+        <div class="field-row"><label>Weight (kg)</label><input type="number" id="rrWeight" value="${profile.weight}" /></div>
+        <div class="field-row"><label>Activity</label><select id="rrActivity"><option value="1.2" ${profile.activity==1.2?"selected":""}>Sedentary</option><option value="1.55" ${profile.activity==1.55?"selected":""}>Moderate</option><option value="1.9" ${profile.activity==1.9?"selected":""}>Athlete</option></select></div>
+        <button type="button" id="rrSaveProfile">Save profile</button>
+        <div class="highlight-card" id="rrProfileResult"></div></div>`;
+      document.getElementById("rrSaveProfile")?.addEventListener("click", () => {
+        const p = { age: Number(document.getElementById("rrAge")?.value)||30, sex: document.getElementById("rrSex")?.value||"male", height: Number(document.getElementById("rrHeight")?.value)||170, weight: Number(document.getElementById("rrWeight")?.value)||70, activity: Number(document.getElementById("rrActivity")?.value)||1.55 };
+        saveJson("riskRadarProfile", p); state.calorieTarget = calculateDailyCalories(p);
+        document.getElementById("rrProfileResult").innerHTML = `Target: <strong>${state.calorieTarget} kcal/day</strong> 🎯`;
+      });
+    } else if (id === "search") {
+      container.innerHTML = `<div class="stack-form"><h3>Food search</h3>
+        <input type="text" id="rrFoodName" placeholder="e.g. rice, apple" />
+        <input type="number" id="rrFoodQty" value="100" placeholder="g" />
+        <button type="button" id="rrAddFood">Add</button>
+        <div id="rrSearchResult" class="highlight-card"></div></div>`;
+      document.getElementById("rrAddFood")?.addEventListener("click", () => {
+        const name = document.getElementById("rrFoodName")?.value?.trim()?.toLowerCase()||"";
+        const qty = Number(document.getElementById("rrFoodQty")?.value)||100;
+        const kcal = (FOOD_TABLE[name]||100)*qty/100;
+        state.foods.push({name,kcal}); state.todayCalories+=kcal;
+        document.getElementById("rrSearchResult").innerHTML = `Added ${name}: ${Math.round(kcal)} kcal 🍎`;
+      });
+    } else if (id === "triangle") { container.innerHTML = `<div class="highlight-card"><h3>🔄 Triangle Engine</h3><p>Sleep ↔ Stress ↔ Food. Poor sleep raises stress; stress affects food choices; food affects sleep.</p></div>`; }
+    else if (id === "debt") { container.innerHTML = `<div class="highlight-card"><h3>💰 Health Debt</h3><p>Junk +debt, workouts/good food -debt. Resets daily.</p></div>`; }
+    else if (id === "recipes") { container.innerHTML = `<div class="highlight-card"><h3>🍽️ Seasonal recipes</h3><p>Summer: salads. Winter: soups. Rainy: warm dal.</p></div>`; }
+    else if (id === "risks") { container.innerHTML = `<div class="highlight-card"><h3>⚠️ Risk (estimate only)</h3><p>Maintain healthy weight & activity to reduce heart/diabetes/obesity risk.</p></div>`; }
+    else if (id === "weekly") { container.innerHTML = `<div class="highlight-card"><h3>📊 Weekly</h3><p>Today: ${Math.round(state.todayCalories)} kcal</p></div>`; }
+    tabs.forEach(t => t.classList.toggle("active", t.getAttribute("data-risk")===id));
+  };
+  if (!initRiskRadar._ready) {
+    tabs.forEach(t => { t.addEventListener("click", () => render(t.getAttribute("data-risk"))); });
+    initRiskRadar._ready = true;
+  }
+  const active = document.querySelector(".risk-tab.active");
+  render(active ? active.getAttribute("data-risk") : "profile");
+}
+
+// FOOD (used by Risk Radar)
 const calorieTargetForm = document.getElementById("calorieTargetForm");
 const calorieTargetResult = document.getElementById("calorieTargetResult");
 const foodForm = document.getElementById("foodForm");
@@ -348,17 +318,9 @@ const foodSummary = document.getElementById("foodSummary");
 const addCustomFoodBtn = document.getElementById("addCustomFoodBtn");
 
 const FOOD_TABLE = {
-  rice: 130, // per 100g
-  roti: 110,
-  chapati: 120,
-  apple: 52,
-  banana: 89,
-  egg: 155,
-  chicken: 165,
-  paneer: 265,
-  milk: 60,
-  dal: 116,
-  bread: 265,
+  rice: 130, roti: 110, chapati: 120, apple: 52, banana: 89, egg: 155,
+  chicken: 165, paneer: 265, milk: 60, dal: 116, bread: 265, oatmeal: 68,
+  pasta: 131, potato: 77, broccoli: 34, spinach: 23, yogurt: 59,
 };
 
 function calculateDailyCalories({ age, sex, height, weight, activity }) {
@@ -367,7 +329,7 @@ function calculateDailyCalories({ age, sex, height, weight, activity }) {
   return Math.round(bmr * activity);
 }
 
-calorieTargetForm.addEventListener("submit", (e) => {
+calorieTargetForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const age = Number(document.getElementById("age").value);
   const sex = document.getElementById("sex").value;
@@ -379,26 +341,17 @@ calorieTargetForm.addEventListener("submit", (e) => {
   const target = calculateDailyCalories({ age, sex, height, weight, activity });
   state.calorieTarget = target;
   updateFoodSummary();
-  calorieTargetResult.innerHTML = `
-    <strong>Your estimated daily target:</strong><br/>
-    <span style="font-size:1.1rem;">${target.toLocaleString()} kcal</span><br/>
-    <span style="color: var(--muted); font-size:0.78rem;">
-      Uses the Mifflin‑St Jeor equation. Real coaching would fine‑tune this to your goals.
-    </span>
-  `;
+  if (calorieTargetResult) calorieTargetResult.innerHTML = `<strong>Daily target:</strong><br/><span style="font-size:1.1rem;">${target.toLocaleString()} kcal</span><br/><span style="color:var(--muted);font-size:0.78rem;">Mifflin-St Jeor equation.</span>`;
 });
 
 function addFoodEntry(name, kcal) {
   state.foods.push({ name, kcal });
   state.todayCalories += kcal;
-  const row = document.createElement("div");
-  row.className = "food-entry";
-  row.innerHTML = `<span>${name}</span><span>${Math.round(kcal)} kcal</span>`;
-  foodLog.appendChild(row);
+  if (foodLog) { const row = document.createElement("div"); row.className = "food-entry"; row.innerHTML = `<span>${name}</span><span>${Math.round(kcal)} kcal</span>`; foodLog.appendChild(row); }
   updateFoodSummary();
 }
 
-foodForm.addEventListener("submit", (e) => {
+foodForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const nameInput = document.getElementById("foodName");
   const qtyInput = document.getElementById("foodQty");
@@ -407,18 +360,13 @@ foodForm.addEventListener("submit", (e) => {
   if (!name || !qty) return;
 
   const per100 = FOOD_TABLE[name];
-  let kcal;
-  if (per100) {
-    kcal = (per100 * qty) / 100;
-  } else {
-    kcal = 0;
-  }
+  const kcal = per100 ? (per100 * qty) / 100 : 0;
   addFoodEntry(nameInput.value.trim(), kcal);
   nameInput.value = "";
   qtyInput.value = "";
 });
 
-addCustomFoodBtn.addEventListener("click", () => {
+addCustomFoodBtn?.addEventListener("click", () => {
   const name = document.getElementById("customFoodName").value.trim();
   const kcal = Number(document.getElementById("customFoodKcal").value);
   if (!name || !kcal) return;
@@ -428,28 +376,21 @@ addCustomFoodBtn.addEventListener("click", () => {
 });
 
 function updateFoodSummary() {
+  if (!foodSummary) return;
   if (state.calorieTarget == null && state.todayCalories === 0) {
     foodSummary.textContent = "";
     return;
   }
   const target = state.calorieTarget || 0;
   const remaining = target ? target - state.todayCalories : null;
-  let text = `<strong>Today so far:</strong> ${Math.round(
-    state.todayCalories
-  )} kcal`;
+  let text = `<strong>Today:</strong> ${Math.round(state.todayCalories)} kcal`;
   if (target) {
     text += `<br/>Target: ${target.toLocaleString()} kcal`;
-    text += `<br/>Remaining: ${
-      remaining >= 0 ? remaining.toLocaleString() : "0"
-    } kcal`;
+    text += `<br/>Remaining: ${remaining >= 0 ? remaining.toLocaleString() : "0"} kcal`;
   }
   if (target && state.todayCalories >= target) {
-    text +=
-      "<br/><span style='color:var(--success);'>Daily calorie quest complete.</span>";
-    showPopup(
-      "Calorie Quest Complete",
-      "You hit your daily calorie goal. Most people never track this consistently – you’re already ahead."
-    );
+    text += "<br/><span style='color:var(--success);'>Calorie quest complete.</span>";
+    showPopup("Calorie Quest Complete", "You hit your daily calorie goal. Most people never track this consistently – you're already ahead.");
   }
   foodSummary.innerHTML = text;
 }
@@ -461,34 +402,48 @@ const moodScoreLabel = document.getElementById("moodScoreLabel");
 const moodLog = document.getElementById("moodLog");
 const moodSummary = document.getElementById("moodSummary");
 
-moodScoreInput.addEventListener("input", () => {
+moodScoreInput?.addEventListener("input", () => {
   moodScoreLabel.textContent = moodScoreInput.value;
 });
 
-moodForm.addEventListener("submit", (e) => {
+const MOOD_QUOTES = {
+  sad: "It's okay to not be okay sometimes. Every storm runs out of rain. 🌧️",
+  happy: "Joy is the simplest form of gratitude. Keep shining! ✨",
+  angry: "Take a breath. You're stronger than whatever is bothering you. 💪",
+  crying: "Tears are the safety valve of the heart. Let it out, then rise. 💙",
+  scared: "Courage isn't the absence of fear—it's moving forward despite it. 🦋",
+  laughing: "Laughter is the best medicine. You're doing great! 😄",
+};
+
+moodForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const time = document.getElementById("moodTime").value;
   const score = Number(moodScoreInput.value);
   const note = document.getElementById("moodNote").value.trim();
-  state.moodEntries.push({ time, score, note, ts: new Date() });
+  const emoji = selectedMoodEmoji || "happy";
+  state.moodEntries.push({ time, score, note, emoji, ts: new Date() });
   renderMoodLog();
   renderMoodSummary();
+  const quote = MOOD_QUOTES[emoji] || MOOD_QUOTES.happy;
+  showPopup("Mood saved 💚", quote);
   moodForm.reset();
   moodScoreInput.value = 3;
   moodScoreLabel.textContent = "3";
+  selectedMoodEmoji = null;
+  document.querySelectorAll(".mood-emoji-btn").forEach((b) => b.classList.remove("selected"));
+  document.getElementById("moodEmojiSelected").textContent = "";
 });
+
+const EMOJI_MAP = { sad: "😢", happy: "😊", angry: "😠", crying: "😭", scared: "😨", laughing: "😂" };
 
 function renderMoodLog() {
   moodLog.innerHTML = "";
   state.moodEntries.forEach((m) => {
     const row = document.createElement("div");
     row.className = "mood-row";
-    const tagClass =
-      m.score <= 2 ? "low" : m.score === 3 ? "medium" : "high";
-    row.innerHTML = `
-      <span>${m.time}</span>
-      <span class="mood-tag ${tagClass}">score ${m.score}</span>
-    `;
+    const tagClass = m.score <= 2 ? "low" : m.score === 3 ? "medium" : "high";
+    const em = EMOJI_MAP[m.emoji] || "😊";
+    row.innerHTML = `<span>${em} ${m.time}</span><span class="mood-tag ${tagClass}">score ${m.score}</span>`;
     moodLog.appendChild(row);
   });
 }
@@ -498,29 +453,19 @@ function renderMoodSummary() {
     moodSummary.textContent = "No mood logs yet for today.";
     return;
   }
-  const avg =
-    state.moodEntries.reduce((sum, m) => sum + m.score, 0) /
-    state.moodEntries.length;
-  let level;
-  let advice;
+  const avg = state.moodEntries.reduce((sum, m) => sum + m.score, 0) / state.moodEntries.length;
+  let level, advice;
   if (avg <= 2) {
     level = "High stress zone";
-    advice =
-      "Your average mood is low. Your nervous system probably needs rest, boundaries, and support. Consider shorter to‑do lists, gentle movement, and talking to someone you trust.";
+    advice = "Your average mood is low. Consider rest, boundaries, and support.";
   } else if (avg < 4) {
     level = "Mixed / manageable stress";
-    advice =
-      "You’re carrying some load but still functioning. Protect the habits that help (sleep, food, movement) and reduce one unnecessary stressor this week.";
+    advice = "Protect habits that help and reduce one unnecessary stressor this week.";
   } else {
     level = "Thriving zone";
-    advice =
-      "Your average mood is high. Double‑down on what’s working – routines, people, and environments that support you.";
+    advice = "Double down on what's working.";
   }
-  moodSummary.innerHTML = `
-    <strong>${level}</strong><br/>
-    Average mood score today: ${avg.toFixed(1)} / 5<br/><br/>
-    ${advice}
-  `;
+  moodSummary.innerHTML = `<strong>${level}</strong><br/>Avg: ${avg.toFixed(1)}/5<br/><br/>${advice}`;
 }
 
 // WORKOUT PLAN
@@ -528,10 +473,19 @@ const workoutForm = document.getElementById("workoutForm");
 const workoutPlanSummary = document.getElementById("workoutPlanSummary");
 const workoutPlanUI = document.getElementById("workoutPlanUI");
 const workoutDisabilityInput = document.getElementById("workoutDisability");
+const workoutDisabilityYesNo = document.getElementById("workoutDisabilityYesNo");
+const workoutDisabilityOptions = document.getElementById("workoutDisabilityOptions");
+const workoutDisabilityOther = document.getElementById("workoutDisabilityOther");
+
+workoutDisabilityYesNo?.addEventListener("change", () => {
+  const show = workoutDisabilityYesNo?.value === "yes";
+  workoutDisabilityOptions.style.display = show ? "block" : "none";
+});
+document.getElementById("workoutDisability")?.addEventListener("change", (e) => {
+  workoutDisabilityOther.style.display = e.target.value === "other" ? "block" : "none";
+});
 const workoutTimeInput = document.getElementById("workoutTime");
-const enableWorkoutRemindersBtn = document.getElementById(
-  "enableWorkoutRemindersBtn"
-);
+const enableWorkoutRemindersBtn = document.getElementById("enableWorkoutRemindersBtn");
 const workoutReminderHint = document.getElementById("workoutReminderHint");
 
 let currentWorkoutPlan = null;
@@ -541,8 +495,7 @@ let workoutSelectedDayIdx = null;
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw);
+    return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
@@ -554,31 +507,25 @@ function saveJson(key, value) {
   } catch {}
 }
 
-function minutesSinceMidnight(date = new Date()) {
-  return date.getHours() * 60 + date.getMinutes();
-}
-
 function timeStrToMinutes(t) {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
+}
+
+function minutesSinceMidnight(date = new Date()) {
+  return date.getHours() * 60 + date.getMinutes();
 }
 
 function scheduleWorkoutReminder() {
   const t = workoutTimeInput?.value;
   if (!t) return;
   saveJson("workoutTimePref", t);
-
   const workoutMin = timeStrToMinutes(t);
   const reminderMin = workoutMin - 15;
   const nowMin = minutesSinceMidnight();
   let deltaMin = reminderMin - nowMin;
   if (deltaMin < 0) deltaMin += 24 * 60;
   const ms = deltaMin * 60 * 1000;
-
-  // store next reminder timestamp so if the tab is refreshed we can reschedule
-  const nextAt = Date.now() + ms;
-  saveJson("workoutNextReminderAt", nextAt);
-
   setTimeout(() => {
     const msg = "Almost time for your workout. Are you ready?";
     if ("Notification" in window && Notification.permission === "granted") {
@@ -586,48 +533,39 @@ function scheduleWorkoutReminder() {
     } else {
       showPopup("Workout reminder", msg);
     }
-    // schedule the next day reminder again
     scheduleWorkoutReminder();
   }, ms);
 }
 
 async function enableWorkoutReminders() {
   if (!("Notification" in window)) {
-    workoutReminderHint.textContent =
-      "Your browser does not support notifications. The app will show an in-app popup if open.";
+    workoutReminderHint.textContent = "Notifications not supported. In-app popup when open.";
     scheduleWorkoutReminder();
     return;
   }
   const perm = await Notification.requestPermission();
-  if (perm === "granted") {
-    workoutReminderHint.textContent =
-      "Reminders enabled. You’ll get a notification 15 minutes before your workout time (when your device/browser allows it).";
-  } else {
-    workoutReminderHint.textContent =
-      "Notifications are blocked. The app will show an in-app popup if it’s open.";
-  }
+  workoutReminderHint.textContent = perm === "granted" ? "Reminders enabled. 15 min before workout time." : "Notifications blocked. In-app popup when open.";
   scheduleWorkoutReminder();
 }
 
 enableWorkoutRemindersBtn?.addEventListener("click", enableWorkoutReminders);
 
-// restore workout time preference
 const savedTime = loadJson("workoutTimePref", null);
 if (savedTime && workoutTimeInput) workoutTimeInput.value = savedTime;
 
 const DISABILITY_TAGS = [
-  { key: "knee", match: ["knee", "knees", "acl", "meniscus"], note: "knee-sensitive" },
-  { key: "back", match: ["back", "spine", "sciatica", "slip disc", "disc"], note: "back-sensitive" },
-  { key: "asthma", match: ["asthma", "breathing"], note: "breathing-sensitive" },
-  { key: "wheelchair", match: ["wheelchair", "paralysis"], note: "seated" },
+  { key: "knee", match: ["knee", "knees", "acl", "meniscus"] },
+  { key: "back", match: ["back", "spine", "sciatica", "slip disc", "disc"] },
+  { key: "asthma", match: ["asthma", "breathing"] },
+  { key: "wheelchair", match: ["wheelchair", "paralysis"] },
 ];
 
 function parseDisability(text) {
   const t = (text || "").toLowerCase();
   const tags = new Set();
-  for (const d of DISABILITY_TAGS) {
+  DISABILITY_TAGS.forEach((d) => {
     if (d.match.some((m) => t.includes(m))) tags.add(d.key);
-  }
+  });
   return tags;
 }
 
@@ -639,19 +577,7 @@ function buildWorkoutPlanV2({ level, goal, hours, disabilityText }) {
   const cooldown = Math.max(4, Math.min(10, Math.round(minutesPerDay * 0.1)));
   const main = Math.max(10, minutesPerDay - warmup - cooldown);
 
-  const intensity =
-    level === "very-basic"
-      ? 1
-      : level === "basic"
-      ? 2
-      : level === "intermediate"
-      ? 3
-      : level === "inter-advanced"
-      ? 4
-      : level === "advanced"
-      ? 5
-      : 6;
-
+  const intensity = level === "very-basic" ? 1 : level === "basic" ? 2 : level === "intermediate" ? 3 : level === "inter-advanced" ? 4 : level === "advanced" ? 5 : 6;
   const cardioFocus = goal === "endurance" || goal === "fat-loss";
   const strengthFocus = goal === "muscle" || goal === "general";
 
@@ -660,206 +586,83 @@ function buildWorkoutPlanV2({ level, goal, hours, disabilityText }) {
       { name: "Neck + shoulder rolls", durationSec: 60 },
       { name: "March in place", durationSec: 90 },
       { name: "Arm circles", durationSec: 60 },
-      { name: "Hip circles", durationSec: 60 },
-      { name: "Ankle circles", durationSec: 45 },
     ],
     cardioLow: [
-      { name: "Brisk walk (indoor/outdoor)", durationSec: 6 * 60 },
+      { name: "Brisk walk", durationSec: 6 * 60 },
       { name: "Step-touch", durationSec: 4 * 60 },
-      { name: "Low-impact shadow boxing", durationSec: 4 * 60 },
     ],
     cardioSeated: [
       { name: "Seated marching", durationSec: 4 * 60 },
       { name: "Seated punches", durationSec: 3 * 60 },
-      { name: "Seated side bends", durationSec: 2 * 60 },
     ],
     strengthUpper: [
       { name: "Wall push-ups", durationSec: 90 },
-      { name: "Chair triceps dips (tiny range)", durationSec: 75 },
       { name: "Bicep curls (water bottles)", durationSec: 75 },
-      { name: "Shoulder press (light)", durationSec: 75 },
-      { name: "Band row / towel row", durationSec: 90 },
     ],
     strengthLower: [
       { name: "Chair sit-to-stand", durationSec: 90 },
       { name: "Glute bridges", durationSec: 90 },
-      { name: "Standing calf raises", durationSec: 75 },
-      { name: "Side leg raises", durationSec: 75 },
     ],
     core: [
-      { name: "Dead bug (slow)", durationSec: 90 },
-      { name: "Bird-dog (slow)", durationSec: 90 },
+      { name: "Dead bug", durationSec: 90 },
       { name: "Plank (knees if needed)", durationSec: 60 },
-      { name: "Glute bridge hold", durationSec: 60 },
     ],
     cooldown: [
       { name: "Box breathing (4-4-4-4)", durationSec: 120 },
       { name: "Hamstring stretch", durationSec: 60 },
-      { name: "Chest opener stretch", durationSec: 60 },
-      { name: "Child’s pose (or seated fold)", durationSec: 60 },
     ],
   };
 
-  // Disability adjustments
   if (tags.has("knee")) {
-    exerciseBank.cardioLow = [
-      { name: "Gentle walk (flat surface)", durationSec: 5 * 60 },
-      { name: "Upper-body shadow boxing (low impact)", durationSec: 4 * 60 },
-    ];
-    exerciseBank.strengthLower = [
-      { name: "Glute bridges", durationSec: 90 },
-      { name: "Side leg raises (small range)", durationSec: 75 },
-      { name: "Calf raises (slow)", durationSec: 75 },
-    ];
-  }
-  if (tags.has("back")) {
-    exerciseBank.core = [
-      { name: "Dead bug (tiny range)", durationSec: 90 },
-      { name: "Bird-dog (tiny range)", durationSec: 90 },
-      { name: "Cat-cow (gentle)", durationSec: 90 },
-    ];
-  }
-  if (tags.has("asthma")) {
-    exerciseBank.warmup.unshift({ name: "Nasal breathing warm-up", durationSec: 90 });
-    exerciseBank.cooldown.unshift({ name: "Extended slow breathing", durationSec: 150 });
+    exerciseBank.cardioLow = [{ name: "Gentle walk (flat)", durationSec: 5 * 60 }];
   }
   if (tags.has("wheelchair")) {
     exerciseBank.cardioLow = exerciseBank.cardioSeated;
-    exerciseBank.strengthLower = [
-      { name: "Seated knee extensions (if possible)", durationSec: 75 },
-      { name: "Seated calf pumps", durationSec: 60 },
-    ];
   }
 
-  // Create a 7-day plan skeleton with workouts on `days` days
   const weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const splitTitles = ["Legs", "Chest & Back", "Shoulders & Arms", "Legs + Core", "Full Body", "Core + Mobility", "Active Recovery"];
   const activeDays = new Set();
   for (let i = 0; i < days; i++) activeDays.add(i);
 
-  const splitTitles = [
-    "Legs",
-    "Chest & Back",
-    "Shoulders & Arms",
-    "Legs + Core",
-    "Full Body",
-    "Core + Mobility",
-    "Active Recovery",
-  ];
+  function pickExercises(bank, targetMin, meta) {
+    const out = [];
+    let remaining = targetMin * 60;
+    let i = 0;
+    while (remaining > 0 && i < 20) {
+      const ex = bank[i % bank.length];
+      const dur = Math.min(ex.durationSec, Math.max(30, remaining));
+      out.push({ ...ex, durationSec: dur, ...meta });
+      remaining -= dur;
+      i++;
+    }
+    return out;
+  }
 
   const planDays = weekdayNames.map((label, idx) => {
     const isWorkout = activeDays.has(idx);
     if (!isWorkout) {
-      const items = [
-        {
-          name: "Rest / light walk + stretching",
-          durationSec: 10 * 60,
-          section: "stretch",
-          kind: "recovery",
-          imageHint: "stretch",
-        },
-      ];
-      return {
-        label,
-        type: "rest",
-        title: "Rest day",
-        items: normalizeDayItems(items, idx),
-      };
+      return { label, type: "rest", title: "Rest day", items: [{ name: "Rest / light walk", durationSec: 600, section: "stretch", id: `day-${idx}-rest` }] };
     }
 
     const items = [];
-
-    // Warmup block
-    items.push(
-      ...pickExercises(exerciseBank.warmup, warmup, intensity, {
-        section: "warmup",
-        kind: "warmup",
-        imageHint: "warmup",
-      })
-    );
-
-    // Main block
+    items.push(...pickExercises(exerciseBank.warmup, warmup, { section: "warmup", kind: "warmup", imageHint: "warmup" }));
     if (tags.has("wheelchair")) {
-      // Seated-friendly split
-      items.push(
-        ...pickExercises(exerciseBank.cardioSeated, Math.round(main * 0.35), intensity, {
-          section: "workout",
-          kind: "cardio",
-          imageHint: "cardio",
-        })
-      );
-      items.push(
-        ...pickExercises(exerciseBank.strengthUpper, Math.round(main * 0.45), intensity, {
-          section: "workout",
-          kind: "strength-upper",
-          imageHint: "upper body",
-        })
-      );
-      items.push(
-        ...pickExercises(exerciseBank.core, Math.round(main * 0.2), intensity, {
-          section: "workout",
-          kind: "core",
-          imageHint: "core",
-        })
-      );
+      items.push(...pickExercises(exerciseBank.cardioSeated, main * 0.35, { section: "workout", kind: "cardio", imageHint: "cardio" }));
+      items.push(...pickExercises(exerciseBank.strengthUpper, main * 0.45, { section: "workout", kind: "strength", imageHint: "upper" }));
     } else {
-      if (cardioFocus) {
-        items.push(
-          ...pickExercises(exerciseBank.cardioLow, Math.round(main * 0.5), intensity, {
-            section: "workout",
-            kind: "cardio",
-            imageHint: "cardio",
-          })
-        );
-      }
+      if (cardioFocus) items.push(...pickExercises(exerciseBank.cardioLow, main * 0.5, { section: "workout", kind: "cardio", imageHint: "cardio" }));
       if (strengthFocus) {
-        items.push(
-          ...pickExercises(exerciseBank.strengthUpper, Math.round(main * 0.25), intensity, {
-            section: "workout",
-            kind: "strength-upper",
-            imageHint: "upper body",
-          })
-        );
-        items.push(
-          ...pickExercises(exerciseBank.strengthLower, Math.round(main * 0.25), intensity, {
-            section: "workout",
-            kind: "strength-lower",
-            imageHint: "legs",
-          })
-        );
+        items.push(...pickExercises(exerciseBank.strengthUpper, main * 0.25, { section: "workout", kind: "strength", imageHint: "upper" }));
+        items.push(...pickExercises(exerciseBank.strengthLower, main * 0.25, { section: "workout", kind: "strength", imageHint: "legs" }));
       }
-      // Core for general/muscle or higher intensity
-      if (goal !== "endurance" || intensity >= 3) {
-        items.push(
-          ...pickExercises(exerciseBank.core, Math.round(main * 0.2), intensity, {
-            section: "workout",
-            kind: "core",
-            imageHint: "core",
-          })
-        );
-      }
+      items.push(...pickExercises(exerciseBank.core, main * 0.2, { section: "workout", kind: "core", imageHint: "core" }));
     }
+    items.push(...pickExercises(exerciseBank.cooldown, cooldown, { section: "stretch", kind: "stretch", imageHint: "stretch" }));
 
-    // Cooldown
-    items.push(
-      ...pickExercises(exerciseBank.cooldown, cooldown, intensity, {
-        section: "stretch",
-        kind: "stretch",
-        imageHint: "stretching",
-      })
-    );
-
-    const normalized = normalizeDayItems(items, idx);
-    const totalMins = Math.max(
-      1,
-      Math.round(normalized.reduce((s, it) => s + (it.durationSec || 0), 0) / 60)
-    );
-    return {
-      label,
-      type: "workout",
-      title: splitTitles[idx % splitTitles.length],
-      totalMins,
-      items: normalized,
-    };
+    items.forEach((it, n) => { it.id = `day-${idx}-ex-${n}-${String(it.name).toLowerCase().replace(/\s+/g, "-").slice(0, 20)}`; it.checked = false; });
+    const totalMins = Math.round(items.reduce((s, it) => s + it.durationSec, 0) / 60);
+    return { label, type: "workout", title: splitTitles[idx % splitTitles.length], totalMins, items };
   });
 
   return {
@@ -875,128 +678,55 @@ function buildWorkoutPlanV2({ level, goal, hours, disabilityText }) {
   };
 }
 
-function normalizeDayItems(items, dayIdx) {
-  const dayId = `day-${dayIdx}`;
-  return items.map((it, n) => ({
-    ...it,
-    id: `${dayId}-ex-${n}-${slug(it.name)}`,
-    checked: false,
-  }));
-}
-
-function pickExercises(bank, targetMinutes, intensity, meta) {
-  const out = [];
-  let remaining = Math.max(1, targetMinutes) * 60;
-  // simple loop that adds exercises until we fill the time
-  let i = 0;
-  while (remaining > 0 && i < 40) {
-    const ex = bank[i % bank.length];
-    const base = ex.durationSec;
-    const scaled = Math.round(base * (0.9 + (intensity - 1) * 0.05));
-    const durationSec = Math.min(scaled, remaining);
-    out.push({
-      name: ex.name,
-      durationSec: Math.max(30, durationSec),
-      section: meta?.section || "workout",
-      kind: meta?.kind || "workout",
-      imageHint: meta?.imageHint || "fitness",
-    });
-    remaining -= durationSec;
-    i++;
-  }
-  return out;
-}
-
-function slug(s) {
-  return String(s)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 40);
-}
-
-// Persistent timers + completion state
 function loadWorkoutState() {
-  return loadJson("workoutStateV1", {
-    plan: null,
-    perExercise: {}, // id -> { startedAt:number|null, durationSec:number, timerDone:boolean, finished:boolean }
-    points: 0,
-  });
+  return loadJson("workoutStateV1", { plan: null, perExercise: {}, points: 0 });
 }
 
 function saveWorkoutState(st) {
   saveJson("workoutStateV1", st);
 }
 
-function ensureWorkoutTicking() {
-  if (workoutTickInterval) return;
-  workoutTickInterval = setInterval(() => {
-    // update timers in UI
-    if (!currentWorkoutPlan) return;
-    const st = loadWorkoutState();
-    let changed = false;
-    for (const day of currentWorkoutPlan.days) {
-      if (!day.items) continue;
-      for (const ex of day.items) {
-        const exState = st.perExercise[ex.id];
-        if (!exState || !exState.startedAt || exState.timerDone) continue;
-        const elapsed = Math.floor((Date.now() - exState.startedAt) / 1000);
-        if (elapsed >= exState.durationSec) {
-          exState.timerDone = true;
-          changed = true;
-        }
-      }
-    }
-    if (changed) saveWorkoutState(st);
-    renderWorkoutPlanUI();
-  }, 900);
-}
-
 function formatTimer(seconds) {
   const s = Math.max(0, seconds);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-
-function awardPoints(points) {
-  const st = loadWorkoutState();
-  st.points = (st.points || 0) + points;
-  saveWorkoutState(st);
-
-  // Add points to scoreboard under "You"
-  const key = "You";
-  const prev = Number(state.racers[key] || 0);
-  state.racers[key] = Math.max(0, Math.min(100, prev + points));
-  renderRaceTrack();
-  if (firebaseEnabled && firestore) {
-    firestore
-      .collection("public")
-      .doc("racers")
-      .set({ racers: state.racers, updatedAt: new Date().toISOString() }, { merge: true })
-      .catch(() => {});
-  }
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function confettiBurst(anchorEl) {
   const rect = anchorEl.getBoundingClientRect();
   const container = document.createElement("div");
   container.className = "confetti-layer";
-  container.style.left = `${rect.left + rect.width / 2}px`;
-  container.style.top = `${rect.top + rect.height / 2}px`;
+  container.style.cssText = `position:fixed;left:${rect.left + rect.width / 2}px;top:${rect.top + rect.height / 2}px;pointer-events:none;z-index:9999;`;
   document.body.appendChild(container);
-
   const colors = ["#ffb3d9", "#60a5fa", "#fb7185", "#a3e635", "#facc15"];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 20; i++) {
     const p = document.createElement("span");
     p.className = "confetti";
-    p.style.background = colors[i % colors.length];
-    p.style.setProperty("--dx", `${(Math.random() * 2 - 1) * 140}px`);
-    p.style.setProperty("--dy", `${-Math.random() * 160 - 40}px`);
-    p.style.setProperty("--rot", `${Math.random() * 540}deg`);
+    p.style.cssText = `position:absolute;width:8px;height:10px;background:${colors[i % colors.length]};border-radius:2px;animation:confetti-pop 1.1s ease-out forwards;--dx:${(Math.random() * 2 - 1) * 100}px;--dy:${-Math.random() * 120 - 40}px;--rot:${Math.random() * 360}deg;`;
     container.appendChild(p);
   }
-  setTimeout(() => container.remove(), 1200);
+  setTimeout(() => container.remove(), 1300);
+}
+
+function awardPoints(points) {
+  const st = loadWorkoutState();
+  st.points = (st.points || 0) + points;
+  saveWorkoutState(st);
+  const key = "You";
+  state.racers[key] = Math.min(100, (state.racers[key] || 0) + points);
+  renderRaceTrack();
+  if (firebaseEnabled && firestore) {
+    firestore.collection("public").doc("racers").set({ racers: state.racers, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+  }
+}
+
+function getStockThumb(hint) {
+  const h = String(hint || "fitness").toLowerCase();
+  const q = h.includes("stretch") ? "yoga" : h.includes("warm") ? "warmup" : h.includes("cardio") ? "running" : h.includes("leg") ? "leg-workout" : h.includes("upper") ? "upper-body" : h.includes("core") ? "abs" : "gym";
+  return `https://source.unsplash.com/128x128/?${q}`;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function renderWorkoutPlanUI() {
@@ -1008,337 +738,166 @@ function renderWorkoutPlanUI() {
     return;
   }
   currentWorkoutPlan = plan;
-
-  // Save plan back if needed
   if (!st.plan || st.plan.id !== plan.id) {
     st.plan = plan;
     saveWorkoutState(st);
   }
 
-  // Build "app-like" UI with date strip + single-day view
-  const todayIdx = (new Date().getDay() + 6) % 7; // Mon=0..Sun=6
-  if (workoutSelectedDayIdx == null) {
-    workoutSelectedDayIdx = loadJson("workoutSelectedDayIdx", todayIdx);
-  }
-
-  const totalExercises = plan.days.reduce((sum, d) => sum + (d.items ? d.items.length : 0), 0);
-  const finishedCount = Object.values(st.perExercise).filter((x) => x?.finished)
-    .length;
-
+  const todayIdx = (new Date().getDay() + 6) % 7;
+  if (workoutSelectedDayIdx == null) workoutSelectedDayIdx = loadJson("workoutSelectedDayIdx", todayIdx);
   const selectedDay = plan.days[workoutSelectedDayIdx] || plan.days[todayIdx];
-  const selectedItems = selectedDay.items || [];
+  const items = selectedDay.items || [];
 
-  const groups = {
-    warmup: selectedItems.filter((x) => x.section === "warmup"),
-    workout: selectedItems.filter((x) => x.section === "workout"),
-    stretch: selectedItems.filter((x) => x.section === "stretch"),
-  };
-  const mins = (arr) => Math.max(0, Math.round(arr.reduce((s, it) => s + (it.durationSec || 0), 0) / 60));
+  const totalEx = plan.days.reduce((s, d) => s + (d.items?.length || 0), 0);
+  const finishedCount = Object.values(st.perExercise).filter((x) => x?.finished).length;
 
-  workoutPlanUI.innerHTML = `
-    <div class="workout-strip">
-      ${renderWorkoutDateStrip(plan, workoutSelectedDayIdx, todayIdx)}
-    </div>
+  const groups = { warmup: items.filter((x) => x.section === "warmup"), workout: items.filter((x) => x.section === "workout"), stretch: items.filter((x) => x.section === "stretch") };
+  const mins = (arr) => Math.round((arr.reduce((s, it) => s + (it.durationSec || 0), 0) / 60));
 
-    <div class="workout-hero">
-      <div>
-        <div class="workout-hero-title">${escapeHtml(selectedDay.title || selectedDay.label)}</div>
-        <div class="workout-hero-sub">${escapeHtml(plan.goal.replace("-", " "))} • ${escapeHtml(plan.level.replace("-", " "))} • ${plan.daysPerWeek} days</div>
-      </div>
-      <div class="workout-hero-mins">${selectedDay.totalMins || Math.max(1, mins(selectedItems))} mins</div>
-    </div>
-
-    <div class="workout-progress compact">
-      <div class="workout-progress-top">
-        <div class="workout-progress-title">Weekly progress</div>
-        <div class="workout-progress-badge">${finishedCount}/${totalExercises}</div>
-      </div>
-      <div class="workout-progress-bar"><div class="workout-progress-fill" style="width:${totalExercises ? Math.round((finishedCount / totalExercises) * 100) : 0}%"></div></div>
-    </div>
-
-    ${renderWorkoutSection("Warm Up", "warmup", mins(groups.warmup), groups.warmup, st, true)}
-    ${renderWorkoutSection("Workout", "workout", mins(groups.workout), groups.workout, st, true)}
-    ${renderWorkoutSection("Stretch", "stretch", mins(groups.stretch), groups.stretch, st, false)}
-  `;
-
-  ensureWorkoutTicking();
-}
-
-function renderWorkoutDateStrip(plan, selectedIdx, todayIdx) {
-  // show real month days for the current week starting Monday
   const now = new Date();
-  const day = (now.getDay() + 6) % 7; // Mon=0
+  const day = (now.getDay() + 6) % 7;
   const monday = new Date(now);
   monday.setDate(now.getDate() - day);
 
-  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return `
-    <div class="date-strip">
-      ${labels
-        .map((lbl, idx) => {
-          const d = new Date(monday);
-          d.setDate(monday.getDate() + idx);
-          const num = d.getDate();
-          const active = idx === selectedIdx ? "active" : "";
-          const today = idx === todayIdx ? "today" : "";
-          return `<button class="date-pill ${active} ${today}" data-day="${idx}">
-            <div class="num">${num}</div>
-            <div class="dow">${lbl}</div>
-          </button>`;
-        })
-        .join("")}
-    </div>
-  `;
-}
+  let dateStrip = `<div class="date-strip">`;
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((lbl, idx) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + idx);
+    const active = idx === workoutSelectedDayIdx ? "active" : "";
+    const today = idx === todayIdx ? "today" : "";
+    dateStrip += `<button class="date-pill ${active} ${today}" data-day="${idx}"><div class="num">${d.getDate()}</div><div class="dow">${lbl}</div></button>`;
+  });
+  dateStrip += `</div>`;
 
-function renderWorkoutSection(title, sectionKey, minutes, items, st, openByDefault) {
-  const open = openByDefault ? "open" : "";
-  return `
-    <details class="section-card" ${open}>
-      <summary>
-        <div class="section-left">
-          <div class="section-title">${title}</div>
-          <div class="section-mins">${minutes} mins</div>
-        </div>
-        <div class="section-actions">
-          <div class="icon-btn">＋</div>
-          <div class="icon-btn chev">⌄</div>
-        </div>
-      </summary>
-      <div class="section-body">
-        ${items.length ? items.map((ex) => renderWorkoutExerciseRow(ex, st)).join("") : "<div class='hint'>Nothing here today.</div>"}
-      </div>
-    </details>
-  `;
-}
-
-function renderWorkoutExerciseRow(ex, st) {
-  const exState = st.perExercise[ex.id] || {
-    startedAt: null,
-    durationSec: ex.durationSec,
-    timerDone: false,
-    finished: false,
-  };
-  // persist duration in case plan changes rendering
-  exState.durationSec = exState.durationSec || ex.durationSec;
-  st.perExercise[ex.id] = exState;
-  saveWorkoutState(st);
-
-  const elapsed = exState.startedAt ? Math.floor((Date.now() - exState.startedAt) / 1000) : 0;
-  const remaining = exState.timerDone ? 0 : Math.max(0, exState.durationSec - elapsed);
-
-  const startDisabled = exState.finished ? "disabled" : "";
-  const finishDisabled = !exState.timerDone || exState.finished ? "disabled" : "";
-  const checked = exState.finished ? "checked" : "";
-  const status = exState.finished
-    ? "Completed"
-    : exState.startedAt
-    ? exState.timerDone
-      ? "Finish"
-      : "In progress"
-    : "Start";
-
-  const subtitle = buildExerciseSubtitle(ex, currentWorkoutPlan?.level);
-  const thumb = getStockThumb(ex.imageHint || ex.kind || "fitness");
-
-  return `
-    <div class="exercise-row ${exState.finished ? "done" : ""}" data-ex="${ex.id}">
-      <img class="exercise-thumb" src="${thumb}" alt="Exercise thumbnail" loading="lazy" />
-      <div class="exercise-main">
-        <div class="exercise-top">
-          <div class="exercise-name">${escapeHtml(ex.name)}</div>
-          <div class="exercise-menu">⋮</div>
-        </div>
-        <div class="exercise-sub">${escapeHtml(subtitle)}</div>
-      </div>
-      <div class="exercise-controls">
-        <div class="exercise-timer">${exState.startedAt ? formatTimer(remaining) : formatTimer(ex.durationSec)}</div>
-        <div class="exercise-buttons">
-          <button class="secondary-btn small-btn js-start" ${startDisabled}>Start</button>
-          <button class="js-finish" ${finishDisabled}>Finish</button>
-        </div>
-        <div class="exercise-status">${status}</div>
-      </div>
-    </div>
-  `;
-}
-
-function buildExerciseSubtitle(ex, level) {
-  // Mimic "10 reps • 10 reps • 10 reps" style for strength-like moves
-  const kind = (ex.kind || "").toLowerCase();
-  const isStrength = kind.includes("strength") || kind.includes("core") || ex.durationSec <= 120;
-  if (isStrength) {
-    const reps = level === "very-basic" ? 8 : level === "basic" ? 10 : 10;
-    const sets = level === "advanced" || level === "intense" ? 4 : 3;
-    const parts = new Array(sets).fill(`${reps} reps`);
-    return parts.join(" • ");
+  function renderSection(title, sectionKey, items) {
+    const itemHtml = items.map((ex) => {
+      const exState = st.perExercise[ex.id] || { startedAt: null, durationSec: ex.durationSec, timerDone: false, finished: false };
+      exState.durationSec = exState.durationSec || ex.durationSec;
+      st.perExercise[ex.id] = exState;
+      const elapsed = exState.startedAt ? Math.floor((Date.now() - exState.startedAt) / 1000) : 0;
+      const remaining = exState.timerDone ? 0 : Math.max(0, exState.durationSec - elapsed);
+      const status = exState.finished ? "Completed" : exState.startedAt ? (exState.timerDone ? "Finish" : "In progress") : "Start";
+      const checkClass = exState.finished ? "checkmark-animate" : "";
+      return `
+        <div class="exercise-row ${exState.finished ? "done" : ""}" data-ex="${ex.id}">
+          <label class="exercise-check-wrap"><input type="checkbox" class="exercise-checkbox ${checkClass}" ${exState.finished ? "checked" : ""} disabled /></label>
+          <img class="exercise-thumb" src="${getStockThumb(ex.imageHint)}" alt="" loading="lazy" />
+          <div class="exercise-main">
+            <div class="exercise-name">${escapeHtml(ex.name)}</div>
+            <div class="exercise-sub">${Math.round(ex.durationSec / 60)} min</div>
+          </div>
+          <div class="exercise-controls">
+            <div class="exercise-timer">${exState.startedAt ? formatTimer(remaining) : formatTimer(ex.durationSec)}</div>
+            <button class="secondary-btn small-btn js-start" ${exState.finished ? "disabled" : ""}>Start</button>
+            <button class="js-finish" ${!exState.timerDone || exState.finished ? "disabled" : ""}>Finish</button>
+          </div>
+        </div>`;
+    }).join("");
+    return `<details class="section-card" ${sectionKey === "warmup" ? "open" : ""}><summary><div class="section-left"><div class="section-title">${title}</div><div class="section-mins">${mins(items)} mins</div></div></summary><div class="section-body">${itemHtml}</div></details>`;
   }
-  // cardio/stretch: show minutes
-  const m = Math.max(1, Math.round(ex.durationSec / 60));
-  return `${m} min`;
-}
 
-function getStockThumb(hint) {
-  const h = String(hint || "fitness").toLowerCase();
-  // Stock images (Unsplash "source" endpoint). No user-provided images used.
-  // Note: requires internet to load.
-  const query =
-    h.includes("stretch") ? "stretching,yoga" :
-    h.includes("warm") ? "warmup,fitness" :
-    h.includes("cardio") ? "cardio,running" :
-    h.includes("leg") ? "leg-workout,fitness" :
-    h.includes("upper") ? "upper-body,fitness" :
-    h.includes("core") ? "abs,core-workout" :
-    "gym,workout";
-  return `https://source.unsplash.com/128x128/?${encodeURIComponent(query)}`;
-}
+  workoutPlanUI.innerHTML = `
+    <div class="workout-strip">${dateStrip}</div>
+    <div class="workout-hero">
+      <div><div class="workout-hero-title">${escapeHtml(selectedDay.title)}</div><div class="workout-hero-sub">${plan.goal} • ${plan.level} • ${plan.daysPerWeek} days</div></div>
+      <div class="workout-hero-mins">${selectedDay.totalMins || mins(items)} mins</div>
+    </div>
+    <div class="workout-progress compact">
+      <div class="workout-progress-top"><div class="workout-progress-title">Weekly</div><div class="workout-progress-badge">${finishedCount}/${totalEx}</div></div>
+      <div class="workout-progress-bar"><div class="workout-progress-fill" style="width:${totalEx ? (finishedCount / totalEx * 100) : 0}%"></div></div>
+    </div>
+    ${renderSection("Warm Up", "warmup", groups.warmup)}
+    ${renderSection("Workout", "workout", groups.workout)}
+    ${renderSection("Stretch", "stretch", groups.stretch)}
+  `;
 
-workoutPlanUI?.addEventListener("click", (e) => {
-  const target = e.target;
-  if (!(target instanceof HTMLElement)) return;
-  const dayBtn = target.closest(".date-pill");
-  if (dayBtn && dayBtn instanceof HTMLElement) {
-    const idx = Number(dayBtn.getAttribute("data-day"));
-    if (!Number.isNaN(idx)) {
-      workoutSelectedDayIdx = idx;
-      saveJson("workoutSelectedDayIdx", idx);
+  workoutPlanUI.querySelectorAll(".date-pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      workoutSelectedDayIdx = Number(btn.getAttribute("data-day"));
+      saveJson("workoutSelectedDayIdx", workoutSelectedDayIdx);
       renderWorkoutPlanUI();
-      return;
-    }
-  }
-  const row = target.closest(".exercise-row");
-  if (!row) return;
-  const exId = row.getAttribute("data-ex");
-  if (!exId) return;
+    });
+  });
 
-  const st = loadWorkoutState();
-  const exState = st.perExercise[exId];
-  if (!exState) return;
+  workoutPlanUI.querySelectorAll(".exercise-row").forEach((row) => {
+    const exId = row.getAttribute("data-ex");
+    const exState = st.perExercise[exId];
+    if (!exState) return;
 
-  if (target.classList.contains("js-start")) {
-    if (exState.finished) return;
-    if (!exState.startedAt) {
-      exState.startedAt = Date.now();
-      exState.timerDone = false;
+    row.querySelector(".js-start")?.addEventListener("click", () => {
+      if (exState.finished) return;
+      if (!exState.startedAt) {
+        exState.startedAt = Date.now();
+        exState.timerDone = false;
+        saveWorkoutState(st);
+        renderWorkoutPlanUI();
+      }
+    });
+
+    row.querySelector(".js-finish")?.addEventListener("click", () => {
+      if (!exState.timerDone || exState.finished) return;
+      const elapsed = Math.floor((Date.now() - exState.startedAt) / 1000);
+      if (elapsed < exState.durationSec) return;
+      exState.timerDone = true;
+      exState.finished = true;
       saveWorkoutState(st);
+      confettiBurst(row);
+      awardPoints(2);
       renderWorkoutPlanUI();
-    }
-  }
+    });
+  });
 
-  if (target.classList.contains("js-finish")) {
-    if (!exState.timerDone || exState.finished) return;
-    exState.finished = true;
-    saveWorkoutState(st);
-    confettiBurst(target);
-    awardPoints(2);
-    renderWorkoutPlanUI();
+  if (!workoutTickInterval) {
+    workoutTickInterval = setInterval(() => {
+      let changed = false;
+      for (const day of plan.days) {
+        for (const ex of day.items || []) {
+          const es = st.perExercise[ex.id];
+          if (es?.startedAt && !es.timerDone) {
+            const elapsed = Math.floor((Date.now() - es.startedAt) / 1000);
+            if (elapsed >= es.durationSec) {
+              es.timerDone = true;
+              changed = true;
+            }
+          }
+        }
+      }
+      if (changed) {
+        saveWorkoutState(st);
+        renderWorkoutPlanUI();
+      }
+    }, 900);
   }
-});
+}
 
-workoutForm.addEventListener("submit", (e) => {
+workoutForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const level = document.getElementById("workoutLevel").value;
   const goal = document.getElementById("workoutGoal").value;
   const hours = Number(document.getElementById("workoutHours").value || 3);
-  const disabilityText = workoutDisabilityInput?.value || "";
-  const workoutTime = workoutTimeInput?.value || "";
-
+  let disabilityText = "";
+  if (workoutDisabilityYesNo?.value === "yes") {
+    const sel = workoutDisabilityInput?.value || "";
+    disabilityText = sel === "other" ? (workoutDisabilityOther?.value || "") : sel;
+  }
   const plan = buildWorkoutPlanV2({ level, goal, hours, disabilityText });
   currentWorkoutPlan = plan;
-
-  // reset per-exercise state for new plan
   const st = loadWorkoutState();
   st.plan = plan;
   st.perExercise = {};
   saveWorkoutState(st);
-
-  if (workoutTime) saveJson("workoutTimePref", workoutTime);
-
-  workoutPlanSummary.innerHTML = `
-    <strong>Your personalized plan is ready.</strong><br/>
-    Days/week: ${plan.daysPerWeek} • ~${plan.minutesPerDay} min/day<br/>
-    ${plan.disabilityText ? `Disability support: <strong>${escapeHtml(plan.disabilityText)}</strong><br/>` : ""}
-    <span style="color:var(--muted); font-size:0.78rem;">
-      Timers persist by saving the start time, so they continue correctly after you reopen the app.
-    </span>
-  `;
-
+  workoutPlanSummary.innerHTML = `<strong>Plan ready.</strong> ${plan.daysPerWeek} days/week • ~${plan.minutesPerDay} min/day`;
   renderWorkoutPlanUI();
-  showPopup(
-    "Workout Plan Ready",
-    "Your weekly plan is generated. Consistency beats intensity – follow this for 4 weeks and then level up."
-  );
+  showPopup("Workout Plan Ready", "Your weekly plan is generated. Consistency beats intensity.");
 });
-
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function buildWorkoutPlan(level, goal, days) {
-  const intensityMap = {
-    "very-basic": "Ultra gentle – mostly walking and mobility.",
-    basic: "Gentle – walking, light strength, stretching.",
-    intermediate: "Moderate – mix of strength and cardio.",
-    "inter-advanced": "Challenging – progressive overload and intervals.",
-    advanced: "High – structured strength split and conditioning.",
-    intense: "Very high – athlete‑style training. Only if recovery is on point.",
-  };
-
-  const focus =
-    goal === "fat-loss"
-      ? "emphasis on steady‑state walking plus basic strength to keep muscle."
-      : goal === "muscle"
-      ? "focus on progressive strength training with enough rest."
-      : goal === "endurance"
-      ? "focus on cardio and intervals with 1–2 strength sessions."
-      : "balanced mix of strength, mobility, and walking.";
-
-  let sampleDay =
-    level === "very-basic"
-      ? "10–20 min easy walk + 5 min gentle stretching."
-      : level === "basic"
-      ? "20–30 min brisk walk + 10 min full‑body mobility."
-      : level === "intermediate"
-      ? "35–45 min alternating days of full‑body strength and brisk walking."
-      : level === "inter-advanced"
-      ? "45–60 min: upper/lower strength split + 1–2 interval sessions."
-      : level === "advanced"
-      ? "60–75 min: structured strength (push/pull/legs) + conditioning."
-      : "75–90 min: advanced split + sprints or sport sessions, with strict recovery.";
-
-  return `
-    <strong>${days}-day plan (${level.replace("-", " ")}):</strong><br/>
-    Goal: ${focus}<br/><br/>
-    What this week looks like:<br/>
-    • Training days: ${days} days / week<br/>
-    • Rest / light days: ${7 - days} days / week<br/><br/>
-    Typical training day:<br/>
-    ${sampleDay}
-  `;
-}
 
 // SLEEP
 const sleepForm = document.getElementById("sleepForm");
 const sleepPlan = document.getElementById("sleepPlan");
 const sleepTouchLog = document.getElementById("sleepTouchLog");
-
-sleepForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const currentBed = document.getElementById("currentBed").value;
-  const currentWake = document.getElementById("currentWake").value;
-  const targetSleepHours = Number(
-    document.getElementById("targetSleepHours").value || 8
-  );
-  const plan = designSleepPlan(currentBed, currentWake, targetSleepHours);
-  state.sleepPlan = plan;
-  state.sleepTouches = [];
-  renderSleepPlan();
-});
+const sleepQualityReport = document.getElementById("sleepQualityReport");
+const sleepWeeklySummary = document.getElementById("sleepWeeklySummary");
+const enableSleepRemindersBtn = document.getElementById("enableSleepRemindersBtn");
 
 function parseTimeToMinutes(t) {
   const [h, m] = t.split(":").map(Number);
@@ -1351,192 +910,139 @@ function minutesToTime(min) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function designSleepPlan(currentBed, currentWake, targetHours) {
+function scheduleBedtimeReminder() {
+  if (!state.sleepPlan) return;
+  saveJson("sleepBedtime", state.sleepPlan.newBed);
+  const bedMin = parseTimeToMinutes(state.sleepPlan.newBed);
+  const reminderMin = bedMin - 15;
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  let deltaMin = reminderMin - nowMin;
+  if (deltaMin < 0) deltaMin += 24 * 60;
+  setTimeout(() => {
+    const msg = "Your bedtime is coming up. Start winding down and get ready to sleep.";
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Bedtime reminder", { body: msg });
+    } else {
+      showPopup("Bedtime reminder", msg);
+    }
+    scheduleBedtimeReminder();
+  }, Math.min(deltaMin * 60 * 1000, 24 * 60 * 60 * 1000));
+}
+
+enableSleepRemindersBtn?.addEventListener("click", async () => {
+  if ("Notification" in window) await Notification.requestPermission();
+  if (state.sleepPlan) scheduleBedtimeReminder();
+  showPopup("Reminder set", "You'll get a notification 15 min before bedtime.");
+});
+
+sleepForm?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const currentBed = document.getElementById("currentBed").value;
+  const currentWake = document.getElementById("currentWake").value;
+  const targetSleepHours = Number(document.getElementById("targetSleepHours").value || 8);
   const bedMin = parseTimeToMinutes(currentBed);
   const wakeMin = parseTimeToMinutes(currentWake);
   let currentDur = wakeMin - bedMin;
   if (currentDur <= 0) currentDur += 24 * 60;
-
-  const targetDur = targetHours * 60;
+  const targetDur = targetSleepHours * 60;
   const shift = (targetDur - currentDur) / 2;
-  const newBed = bedMin - shift;
-  const newWake = wakeMin + shift;
-
-  return {
+  state.sleepPlan = {
     currentDuration: (currentDur / 60).toFixed(1),
-    targetHours,
-    newBed: minutesToTime(Math.round(newBed)),
-    newWake: minutesToTime(Math.round(newWake)),
+    targetHours: targetSleepHours,
+    newBed: minutesToTime(Math.round(bedMin - shift)),
+    newWake: minutesToTime(Math.round(wakeMin + shift)),
   };
-}
+  state.sleepTouches = [];
+  renderSleepPlan();
+  renderSleepQuality();
+  renderSleepWeekly();
+});
 
 function renderSleepPlan() {
-  if (!state.sleepPlan) {
-    sleepPlan.textContent = "";
-    return;
-  }
+  if (!sleepPlan || !state.sleepPlan) return;
   const p = state.sleepPlan;
-  sleepPlan.innerHTML = `
-    You currently sleep about <strong>${p.currentDuration} hours</strong>.<br/>
-    To reach <strong>${p.targetHours} hours</strong>, aim for:<br/>
-    • Bedtime around <strong>${p.newBed}</strong><br/>
-    • Wake time around <strong>${p.newWake}</strong><br/><br/>
-    Try to protect a 60–90 min “wind‑down” with no intense screens or heavy food before bed.
-  `;
+  sleepPlan.innerHTML = `You sleep ~<strong>${p.currentDuration} h</strong>.<br/>Target <strong>${p.targetHours} h</strong>: bed <strong>${p.newBed}</strong>, wake <strong>${p.newWake}</strong>.<br/>60–90 min wind-down before bed.`;
 }
 
-// Track "phone touches" as any interaction during sleep window
-document.addEventListener(
-  "click",
-  () => {
-    if (!state.sleepPlan) return;
-    const now = new Date();
-    const minutes = now.getHours() * 60 + now.getMinutes();
-    const bed = parseTimeToMinutes(state.sleepPlan.newBed);
-    const wake = parseTimeToMinutes(state.sleepPlan.newWake);
-    let inWindow = false;
-    if (bed < wake) {
-      inWindow = minutes >= bed && minutes <= wake;
-    } else {
-      inWindow = minutes >= bed || minutes <= wake;
-    }
-    if (inWindow) {
-      state.sleepTouches.push(now);
-      sleepTouchLog.textContent = `Detected ${
-        state.sleepTouches.length
-      } interaction(s) during your sleep window. Treat this as “phone unlocks during sleep”.`;
-    }
-  },
-  true
-);
+function renderSleepQuality() {
+  if (!sleepQualityReport) return;
+  const p = state.sleepPlan;
+  if (!p) { sleepQualityReport.innerHTML = ""; return; }
+  const touches = state.sleepTouches?.length || 0;
+  const hrs = parseFloat(p.currentDuration);
+  const quality = touches === 0 && hrs >= 7 ? "Slept well" : "Disturbed sleep";
+  sleepQualityReport.innerHTML = `<strong>${quality} ${touches===0 && hrs>=7 ? "😊" : "😴"}</strong><br/>Total: ${hrs}h | Phone checks: ${touches}`;
+}
+
+function renderSleepWeekly() {
+  if (!sleepWeeklySummary) return;
+  const history = loadJson("sleepWeeklyHistory", []);
+  if (history.length === 0) { sleepWeeklySummary.innerHTML = "Log sleep to see weekly summary."; return; }
+  const avgHrs = (history.reduce((s, d) => s + (d.hours || 0), 0) / history.length).toFixed(1);
+  const avgChecks = (history.reduce((s, d) => s + (d.checks || 0), 0) / history.length).toFixed(0);
+  const good = parseFloat(avgHrs) >= 8;
+  sleepWeeklySummary.innerHTML = `<strong>Weekly avg:</strong> ${avgHrs}h sleep, ${avgChecks} night checks.<br/>${good ? "Great job! Healthy schedule. 🎉" : "Try for 8+ hours. You've got this! 💪"}`;
+}
+
+document.addEventListener("click", () => {
+  if (!state.sleepPlan || !sleepTouchLog) return;
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const bed = parseTimeToMinutes(state.sleepPlan.newBed);
+  const wake = parseTimeToMinutes(state.sleepPlan.newWake);
+  const inWindow = bed < wake ? (minutes >= bed && minutes <= wake) : (minutes >= bed || minutes <= wake);
+  if (inWindow) {
+    state.sleepTouches.push(now);
+    sleepTouchLog.innerHTML = `Detected <strong>${state.sleepTouches.length}</strong> interaction(s) during sleep. Try to avoid phone use. 😴`;
+    if (state.sleepTouches.length >= 2) showPopup("Bedtime reminder", "It's your bedtime. Try to avoid using your phone and get some rest.");
+    renderSleepQuality();
+  }
+}, true);
 
 // GEO RISK
 const geoForm = document.getElementById("geoForm");
 const geoResult = document.getElementById("geoResult");
 
 const GEO_DATA = {
-  delhi: {
-    pollution: "Very high PM2.5 and PM10 most of the year.",
-    issues: [
-      "Asthma and breathing issues",
-      "Increased heart and blood‑pressure risk",
-      "Eye irritation and headaches",
-    ],
-    tips: [
-      "Use N95 mask on high‑pollution days.",
-      "Keep windows closed during peak traffic hours.",
-      "Add indoor plants and air purifier for bedroom if possible.",
-      "Shift intense outdoor workouts to lower‑pollution times or indoors.",
-    ],
-  },
-  mumbai: {
-    pollution: "High but often lower than inland industrial cities.",
-    issues: [
-      "Humidity‑related skin and hair issues",
-      "Occasional poor air quality near traffic/industrial zones",
-    ],
-    tips: [
-      "Prefer sea‑facing or green routes for walks.",
-      "Rinse skin and hair after exposure to heavy rain or polluted water.",
-      "Stay updated with local AQI apps for bad‑air days.",
-    ],
-  },
-  london: {
-    pollution: "Moderate pollution, traffic‑based peaks.",
-    issues: [
-      "Respiratory irritation on busy roads",
-      "Seasonal affective symptoms in winter (low daylight)",
-    ],
-    tips: [
-      "Walk on back streets and parks instead of main roads.",
-      "Maximise daylight exposure around midday, especially in winter.",
-      "Consider vitamin D check if energy stays low.",
-    ],
-  },
-  dubai: {
-    pollution: "Dust and sand plus traffic pollution.",
-    issues: [
-      "Dry eyes, skin, and airways",
-      "Heat stress risk in summer",
-    ],
-    tips: [
-      "Use sunglasses and hydration breaks for any outdoor time.",
-      "Train indoors during peak heat months.",
-      "Moisturise skin and consider saline nasal rinses after dusty days.",
-    ],
-  },
+  delhi: { pollution: "Very high PM2.5 and PM10.", issues: ["Asthma", "Heart/blood-pressure risk", "Eye irritation"], tips: ["N95 mask on bad days", "Keep windows closed during peak traffic", "Air purifier if possible"] },
+  mumbai: { pollution: "High, humidity-related issues.", issues: ["Skin/hair from humidity"], tips: ["Sea-facing walks", "Rinse after exposure"] },
+  london: { pollution: "Moderate, traffic peaks.", issues: ["Respiratory on busy roads", "Winter SAD"], tips: ["Parks over main roads", "Daylight exposure"] },
+  dubai: { pollution: "Dust, sand, traffic.", issues: ["Dry eyes/skin", "Heat stress"], tips: ["Indoor training in summer", "Hydration"] },
 };
 
-geoForm.addEventListener("submit", (e) => {
+geoForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const city = document.getElementById("cityName").value.trim().toLowerCase();
   if (!city) return;
   const data = GEO_DATA[city];
-  if (!data) {
-    geoResult.innerHTML =
-      "No preset data for this city yet. In the full version this would connect to live air‑quality and disease‑risk APIs.";
-    return;
-  }
-  geoResult.innerHTML = `
-    <strong>Pollution & risk snapshot:</strong><br/>
-    ${data.pollution}<br/><br/>
-    <strong>Common health issues:</strong>
-    <ul>${data.issues.map((i) => `<li>${i}</li>`).join("")}</ul>
-    <strong>Preventive moves:</strong>
-    <ul>${data.tips.map((t) => `<li>${t}</li>`).join("")}</ul>
-  `;
+  geoResult.innerHTML = data
+    ? `<strong>${city}:</strong><br/>${data.pollution}<br/><strong>Issues:</strong><ul>${data.issues.map((i) => `<li>${i}</li>`).join("")}</ul><strong>Tips:</strong><ul>${data.tips.map((t) => `<li>${t}</li>`).join("")}</ul>`
+    : "No preset for this city. Full version would use live AQI APIs.";
 });
 
-// SCOREBOARD
-const scoreForm = document.getElementById("scoreForm");
+// SCOREBOARD (Firebase-driven - scores from workouts)
 const raceTrack = document.getElementById("raceTrack");
 
-scoreForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const name = document.getElementById("runnerName").value.trim();
-  const score = Number(document.getElementById("runnerScore").value);
-  if (!name || isNaN(score)) return;
-  state.racers[name] = Math.max(0, Math.min(100, score));
-  renderRaceTrack();
-  if (firebaseEnabled && firestore) {
-    firestore
-      .collection("public")
-      .doc("racers")
-      .set({ racers: state.racers, updatedAt: new Date().toISOString() }, { merge: true })
-      .catch(() => {});
-  }
-  scoreForm.reset();
-});
-
 function renderRaceTrack() {
+  if (!raceTrack) return;
   raceTrack.innerHTML = "";
-  const entries = Object.entries(state.racers);
-  if (entries.length === 0) return;
-  entries.sort((a, b) => b[1] - a[1]);
-  const topScore = entries[0][1] || 1;
-
+  const entries = Object.entries(state.racers).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    raceTrack.innerHTML = '<p class="hint">Complete workouts to earn points! Scores sync from the database.</p>';
+    return;
+  }
+  const top = entries[0]?.[1] || 1;
   entries.forEach(([name, score], idx) => {
     const row = document.createElement("div");
     row.className = "race-row";
     const crown = idx === 0 ? '<span class="crown">👑</span>' : "";
-    const width = (score / topScore) * 100;
-    row.innerHTML = `
-      <div class="race-label">
-        <span class="name">${name} ${crown}</span>
-        <span>${score} pts</span>
-      </div>
-      <div class="race-track-bar">
-        <div class="race-car" style="width:${Math.max(
-          10,
-          Math.min(100, width)
-        )}%;">🏎️</div>
-      </div>
-    `;
+    const width = Math.max(12, Math.min(100, (score / top) * 100));
+    row.innerHTML = `<div class="race-label"><span class="name">${escapeHtml(name)} ${crown}</span><span>${score} pts</span></div><div class="race-track-bar"><div class="race-car" style="width:${width}%;"><span class="race-car-emoji">🏎️</span> ${escapeHtml(name)}</div></div>`;
     raceTrack.appendChild(row);
   });
 }
 
-// THERAPIST CHATBOT (rule‑based demo)
+// CHATBOT
 const chatWindow = document.getElementById("chatWindow");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
@@ -1552,108 +1058,79 @@ function addChatMessage(role, text) {
   chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-function analyseStressMessage(text) {
-  const t = text.toLowerCase();
+function getChatbotReply(text) {
+  const t = text.toLowerCase().trim();
+  if (!t) return "I'm here when you need me. How are you feeling today? 💙";
+  if (/^(hi|hey|hello|yo|hola)/.test(t)) return "Hi! 👋 How are you feeling today? I'm here to listen.";
+  if (/^(good|great|fine|ok|okay|well)/.test(t)) return "That's wonderful to hear! 😊 Keep that positive energy going. What's making you feel good?";
+  if (/^(bad|sad|terrible|awful|down|low)/.test(t)) return "I'm sorry you're going through this. 💙 Remember, tough moments don't last forever. Would you like to talk about what's bothering you?";
+  if (/^(thanks|thank you|ty)/.test(t)) return "You're welcome! 😊 I'm always here for you. Take care of yourself today! 🌟";
+  if (/^(bye|goodbye|see ya)/.test(t)) return "Take care! 🌈 Remember to be kind to yourself. See you soon!";
+  if (/^(work|job|office|boss|colleague)/.test(t)) return "Work stress is really common. 😌 Try taking short breaks, setting boundaries, and celebrating small wins. You've got this! 💪";
+  if (/^(family|parent|relationship|partner)/.test(t)) return "Relationships can be complex. 💙 It helps to communicate openly and take time for yourself when needed. You deserve peace.";
+  if (/^(money|finance|bills|debt)/.test(t)) return "Financial stress is heavy. 💰 Start with one small step—a budget, or talking to someone you trust. Progress over perfection! 🌱";
+  if (/^(alone|lonely|isolated)/.test(t)) return "Feeling lonely is hard. 🤗 Reach out to one person today—a call, a text. Small connections matter. You're not as alone as it feels.";
+  if (/^(sleep|tired|exhausted|insomnia)/.test(t)) return "Sleep affects everything! 😴 Try a wind-down routine, less screen time before bed, and keep a consistent schedule. Your body will thank you.";
+  if (/^(anxious|anxiety|worried|nervous)/.test(t)) return "Anxiety can feel overwhelming. 🌸 Try 4-4-4 breathing: breathe in 4 sec, hold 4 sec, out 4 sec. You're stronger than you think!";
   const themes = [];
-  if (t.includes("work") || t.includes("job") || t.includes("study")) {
-    themes.push("pressure/expectations around work or studies");
-  }
-  if (t.includes("family") || t.includes("parents") || t.includes("relationship")) {
-    themes.push("relationship or family tension");
-  }
-  if (t.includes("money") || t.includes("bills") || t.includes("finance")) {
-    themes.push("financial safety and uncertainty");
-  }
-  if (t.includes("alone") || t.includes("lonely")) {
-    themes.push("social support and feeling understood");
-  }
-  if (t.includes("health") || t.includes("body") || t.includes("weight")) {
-    themes.push("health and body image worries");
-  }
-
-  let result =
-    "Thank you for being honest about this. From what you wrote, it sounds like your stress might be connected to ";
-  if (themes.length === 0) {
-    result +=
-      "a mix of responsibilities, thoughts, and feelings that have been building up over time.";
-  } else if (themes.length === 1) {
-    result += themes[0] + ".";
-  } else {
-    const last = themes.pop();
-    result += themes.join(", ") + " and " + last + ".";
-  }
-  result +=
-    " The main move I’d suggest is to pick just one tiny area you can influence this week, instead of trying to fix everything at once. Also, this app is not a replacement for a real therapist – if this feels heavy, talking to a professional is a strong, brave move.";
+  if (/work|job|study/.test(t)) themes.push("work or study pressure");
+  if (/family|parents|relationship/.test(t)) themes.push("relationship tension");
+  if (/money|bills|finance/.test(t)) themes.push("financial uncertainty");
+  if (/alone|lonely/.test(t)) themes.push("social support");
+  if (/health|body|weight/.test(t)) themes.push("health or body image");
+  let result = "Thank you for sharing. 💚 It sounds like your stress might connect to ";
+  result += themes.length ? themes.join(", ") + "." : "responsibilities and feelings that have been building.";
+  result += " Focus on one small area you can influence this week. You've got this! 🌟 This app is not a replacement for a therapist.";
   return result;
 }
 
-async function callClaudeTherapistProxy(userText) {
-  const url = window.__CLAUDE_PROXY_URL__;
-  if (!url) return null;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: userText,
-        // Minimal context for the server; you can expand this later
-        uid: currentUid,
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data || typeof data.reply !== "string") return null;
-    return data.reply;
-  } catch {
-    return null;
-  }
-}
-
-chatForm.addEventListener("submit", (e) => {
+chatForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = chatInput.value.trim();
   if (!text) return;
   addChatMessage("user", text);
   chatInput.value = "";
-  setTimeout(async () => {
-    const claudeReply = await callClaudeTherapistProxy(text);
-    const reply = claudeReply ?? analyseStressMessage(text);
-    addChatMessage("bot", reply);
-  }, 150);
+  setTimeout(() => {
+    addChatMessage("bot", getChatbotReply(text));
+  }, 200);
 });
 
 // POROSITY
 const porosityForm = document.getElementById("porosityForm");
 const porosityAdvice = document.getElementById("porosityAdvice");
 
-porosityForm.addEventListener("submit", (e) => {
+const POROSITY_DATA = {
+  floats: {
+    title: "Low porosity hair",
+    body: "Your cuticles lie flat and tight, so moisture has trouble entering the strand. Products can sit on top and cause buildup.\n\n• Use lighter, water-based products and avoid heavy oils and butters.\n• Warm water and steam help open cuticles—try a warm towel wrap before conditioning.\n• Use gentle clarifying shampoo occasionally to prevent buildup.\n• Protein can make low-porosity hair feel stiff—use sparingly and follow with moisture.\n• Be patient: low-porosity hair takes longer to get fully wet and to absorb products.\n• Deep condition with heat (shower cap + warm towel) for better penetration.",
+    products: "Light leave-ins, water-based gels, apple cider vinegar rinses.",
+    avoid: "Heavy oils, silicone-heavy products, cold-water rinses only.",
+  },
+  middle: {
+    title: "Medium / normal porosity hair",
+    body: "Your cuticles are balanced—moisture goes in and stays in reasonably well. This type responds well to most routines.\n\n• Use a mix of moisture and light protein.\n• Protect from heat and sun to avoid becoming high-porosity over time.\n• Keep a simple, consistent routine instead of constant product changes.\n• Deep condition 1–2x per week.\n• Light oils (argan, jojoba) can help seal without weighing hair down.",
+    products: "Balanced conditioners, light oils, heat protectant.",
+    avoid: "Overloading with protein, excessive heat styling.",
+  },
+  sinks: {
+    title: "High porosity hair",
+    body: "Your cuticles are more open, so hair absorbs moisture quickly but loses it just as fast. It can feel dry soon after washing.\n\n• Seal with oils or creams after hydrating (LOC or LCO method).\n• Focus on gentle handling—less heat, low-manipulation styles, satin/silk caps.\n• Protein treatments can help strengthen the strand and reduce breakage.\n• Use leave-in conditioners and butters to lock in moisture.\n• Cold-water rinses can help close cuticles slightly at the end of washing.\n• Avoid harsh chemicals and over-processing.",
+    products: "Protein treatments, butters, heavier oils, deep conditioners.",
+    avoid: "Harsh sulfates, excessive heat, over-washing.",
+  },
+};
+
+porosityForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const val = document.getElementById("porosityResult").value;
-  let title;
-  let body;
-  if (val === "floats") {
-    title = "Low porosity hair";
-    body =
-      "Cuticles are tight and resist water. Products can sit on top and cause build‑up.\n\nTips:\n• Use lighter products and avoid heavy oils.\n• Warm water and occasional gentle clarifying can help products enter the strand.\n• Be patient – low porosity hair takes longer to get fully wet.";
-  } else if (val === "middle") {
-    title = "Medium / normal porosity";
-    body =
-      "Balance between moisture in and out. This type usually responds well to most routines.\n\nTips:\n• Mix of moisture and light protein masks.\n• Protect from heat and sun so it doesn’t become high‑porosity.\n• Keep a simple, consistent routine instead of chasing constant product changes.";
-  } else {
-    title = "High porosity hair";
-    body =
-      "Cuticles are more open. Hair drinks up moisture fast but also loses it quickly.\n\nTips:\n• Seal with oils or creams after hydrating.\n• Focus on gentle handling, less heat, and protective styles.\n• Occasional protein treatments can help strengthen the strand.";
-  }
-  porosityAdvice.innerHTML = `<strong>${title}</strong><br/>${body.replace(
-    /\n/g,
-    "<br/>"
-  )}`;
-  showPopup(
-    "Hair Porosity Analysed",
-    "You just unlocked your hair’s behaviour profile. Use this to match products and routines to what your strands actually need."
-  );
+  const data = POROSITY_DATA[val] || POROSITY_DATA.middle;
+  porosityAdvice.innerHTML = `
+    <strong>${data.title}</strong><br/>
+    ${data.body.replace(/\n/g, "<br/>")}
+    <br/><br/><strong>Recommended products:</strong> ${data.products}
+    <br/><strong>Avoid:</strong> ${data.avoid}
+  `;
+  showPopup("Hair Porosity Analysed ✨", "Use this detailed analysis to match products and routines to what your strands actually need.");
 });
 
-// Start optional services
 initFirebaseIfConfigured();
-
