@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LifeQuest Health Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <h1>LifeQuest Health Hub</h1>
+      <p class="tagline">Turn your body into a game board for your dream lifestyle.</p>
+    </header>
+
+    <main class="app-main">
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="bodyTracker">Humanoid</button>
+        <button class="tab-btn" data-tab="foodTracker">Food & Calories</button>
+        <button class="tab-btn" data-tab="stressMood">Stress & Mood</button>
+        <button class="tab-btn" data-tab="workoutSleep">Workout & Sleep</button>
+        <button class="tab-btn" data-tab="geoRiskScoreboard">GeoRisk & Scoreboard</button>
+        <button class="tab-btn" data-tab="chatbotPorosity">Therapist & Hair</button>
+      </nav>
+
+      <!-- Humanoid body tracker -->
+      <section id="bodyTracker" class="tab-panel active">
+        <h2>Body Quest Humanoid</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <svg
+              id="bodySvg"
+              viewBox="0 0 200 400"
+              class="body-svg"
+              aria-labelledby="bodyTitle"
+            >
+              <title id="bodyTitle">Body Progress</title>
+              <!-- Torso -->
+              <rect id="torso" x="80" y="90" width="40" height="90" class="body-part" />
+              <!-- Head -->
+              <circle id="head" cx="100" cy="55" r="25" class="body-part" />
+              <!-- Arms -->
+              <rect id="leftArm" x="50" y="95" width="25" height="75" class="body-part" />
+              <rect id="rightArm" x="125" y="95" width="25" height="75" class="body-part" />
+              <!-- Legs -->
+              <rect id="leftLeg" x="80" y="180" width="15" height="90" class="body-part" />
+              <rect id="rightLeg" x="105" y="180" width="15" height="90" class="body-part" />
+              <!-- Simple kidneys inside torso -->
+              <ellipse id="leftKidney" cx="88" cy="125" rx="6" ry="10" class="body-part organ" />
+              <ellipse id="rightKidney" cx="112" cy="125" rx="6" ry="10" class="body-part organ" />
+            </svg>
+          </div>
+          <div class="panel-right">
+            <h3>Log physical activity by body part</h3>
+            <p>Every time you do a movement or task that targets a specific area, log it here. Only the parts you actually train will light up.</p>
+            <form id="bodyActivityForm" class="stack-form">
+              <div class="field-row">
+                <label>Activity name</label>
+                <input type="text" id="activityName" placeholder="e.g. 30 min walk, push‑ups, yoga, water goal" />
+              </div>
+              <div class="field-row">
+                <label>What did it mainly work?</label>
+                <select id="activityFocus">
+                  <option value="legs">Legs (walking, running, squats)</option>
+                  <option value="arms">Arms / upper body (push‑ups, lifting, sports)</option>
+                  <option value="torso">Core / torso (planks, yoga, posture work)</option>
+                  <option value="head">Mind / head (meditation, deep focus work)</option>
+                  <option value="kidneys">Hydration / kidneys (hitting water goal)</option>
+                  <option value="full">Full body session</option>
+                </select>
+              </div>
+              <button type="submit">Log activity</button>
+            </form>
+            <button id="resetBodyBtn" class="secondary-btn">Reset today’s body progress</button>
+            <div id="bodyQuestMessage" class="message-area"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Food & calories -->
+      <section id="foodTracker" class="tab-panel">
+        <h2>Food Tracker & Daily Calories</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Your Daily Target</h3>
+            <form id="calorieTargetForm" class="stack-form">
+              <div class="field-row">
+                <label>Age (years)</label>
+                <input type="number" id="age" min="10" max="100" required />
+              </div>
+              <div class="field-row">
+                <label>Sex</label>
+                <select id="sex">
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Height (cm)</label>
+                <input type="number" id="height" min="120" max="230" required />
+              </div>
+              <div class="field-row">
+                <label>Weight (kg)</label>
+                <input type="number" id="weight" min="30" max="250" required />
+              </div>
+              <div class="field-row">
+                <label>Activity level</label>
+                <select id="activity">
+                  <option value="1.2">Sedentary</option>
+                  <option value="1.375">Lightly active</option>
+                  <option value="1.55">Moderately active</option>
+                  <option value="1.725">Very active</option>
+                  <option value="1.9">Athlete / intense</option>
+                </select>
+              </div>
+              <button type="submit">Calculate daily calories</button>
+            </form>
+            <div id="calorieTargetResult" class="highlight-card"></div>
+          </div>
+          <div class="panel-right">
+            <h3>What you ate today</h3>
+            <form id="foodForm" class="stack-form">
+              <div class="field-row">
+                <label>Food</label>
+                <input type="text" id="foodName" placeholder="e.g. rice, apple, chicken" />
+              </div>
+              <div class="field-row">
+                <label>Quantity (g)</label>
+                <input type="number" id="foodQty" min="1" />
+              </div>
+              <button type="submit">Add to today</button>
+              <p class="hint">
+                This demo uses a small built‑in food list; you can still add custom items with manual calories.
+              </p>
+              <div class="field-row">
+                <label>Or add custom item (kcal)</label>
+                <input type="text" id="customFoodName" placeholder="Custom food" />
+                <input type="number" id="customFoodKcal" min="0" placeholder="kcal" />
+                <button type="button" id="addCustomFoodBtn" class="secondary-btn small-btn">Add custom</button>
+              </div>
+            </form>
+            <div id="foodLog"></div>
+            <div id="foodSummary" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stress & mood -->
+      <section id="stressMood" class="tab-panel">
+        <h2>Stress & Mood Compass</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Log your mood (3x per day)</h3>
+            <form id="moodForm" class="stack-form">
+              <div class="field-row">
+                <label>Time of day</label>
+                <select id="moodTime">
+                  <option value="morning">Morning</option>
+                  <option value="afternoon">Afternoon</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Mood (1 = low, 5 = great)</label>
+                <input type="range" id="moodScore" min="1" max="5" value="3" />
+                <span id="moodScoreLabel">3</span>
+              </div>
+              <div class="field-row">
+                <label>What’s on your mind?</label>
+                <textarea id="moodNote" rows="2" placeholder="Optional note"></textarea>
+              </div>
+              <button type="submit">Save mood</button>
+            </form>
+          </div>
+          <div class="panel-right">
+            <h3>Today’s stress report</h3>
+            <div id="moodLog"></div>
+            <div id="moodSummary" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Workout & sleep -->
+      <section id="workoutSleep" class="tab-panel">
+        <h2>Workout Plan & Sleep Designer</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Workout plan</h3>
+            <form id="workoutForm" class="stack-form">
+              <div class="field-row">
+                <label>Level</label>
+                <select id="workoutLevel">
+                  <option value="very-basic">Very basic</option>
+                  <option value="basic">Basic</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="inter-advanced">Inter‑advanced</option>
+                  <option value="advanced">Advanced</option>
+                  <option value="intense">Intense</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Goal</label>
+                <select id="workoutGoal">
+                  <option value="general">General health</option>
+                  <option value="fat-loss">Fat loss</option>
+                  <option value="muscle">Muscle / strength</option>
+                  <option value="endurance">Endurance</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label>Weekly time (hours)</label>
+                <input type="number" id="workoutHours" min="1" max="14" value="4" />
+              </div>
+              <button type="submit">Generate plan</button>
+            </form>
+            <div id="workoutPlan" class="highlight-card"></div>
+          </div>
+          <div class="panel-right">
+            <h3>Sleep schedule upgrade</h3>
+            <form id="sleepForm" class="stack-form">
+              <div class="field-row">
+                <label>Current bedtime</label>
+                <input type="time" id="currentBed" value="00:30" />
+              </div>
+              <div class="field-row">
+                <label>Current wake time</label>
+                <input type="time" id="currentWake" value="07:30" />
+              </div>
+              <div class="field-row">
+                <label>Target sleep hours</label>
+                <input type="number" id="targetSleepHours" min="6" max="10" value="8" />
+              </div>
+              <button type="submit">Design better schedule</button>
+            </form>
+            <div id="sleepPlan" class="highlight-card"></div>
+            <p class="hint">
+              A real app could track late‑night phone touches using system‑level permissions. This demo tracks any
+              interactions with this page between your target sleep hours as “phone use during sleep”.
+            </p>
+            <div id="sleepTouchLog"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Geo health risk & scoreboard -->
+      <section id="geoRiskScoreboard" class="tab-panel">
+        <h2>Health GeoRisk & Race Track</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>City health risk map</h3>
+            <form id="geoForm" class="stack-form">
+              <div class="field-row">
+                <label>City</label>
+                <input type="text" id="cityName" placeholder="e.g. Delhi, London, Mumbai, Dubai" />
+              </div>
+              <div class="field-row">
+                <label>Country</label>
+                <input type="text" id="countryName" placeholder="Optional" />
+              </div>
+              <button type="submit">Check risks</button>
+            </form>
+            <div id="geoResult" class="highlight-card"></div>
+          </div>
+          <div class="panel-right">
+            <h3>Friend leaderboard (race cars)</h3>
+            <form id="scoreForm" class="stack-form">
+              <div class="field-row">
+                <label>Name</label>
+                <input type="text" id="runnerName" placeholder="Friend or family" />
+              </div>
+              <div class="field-row">
+                <label>Score (0–100)</label>
+                <input type="number" id="runnerScore" min="0" max="100" />
+              </div>
+              <button type="submit">Add / update racer</button>
+            </form>
+            <div id="raceTrack"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chatbot & hair porosity -->
+      <section id="chatbotPorosity" class="tab-panel">
+        <h2>Therapist Bot & Hair Lab</h2>
+        <div class="panel-grid">
+          <div class="panel-left">
+            <h3>Mini therapist chatbot</h3>
+            <div id="chatWindow" class="chat-window"></div>
+            <form id="chatForm" class="chat-form">
+              <input type="text" id="chatInput" placeholder="Tell me what’s stressing you…" autocomplete="off" />
+              <button type="submit">Send</button>
+            </form>
+          </div>
+          <div class="panel-right">
+            <h3>Hair porosity checker</h3>
+            <ol class="porosity-steps">
+              <li>Take a clean strand of dry hair (no oil/conditioner).</li>
+              <li>Drop it into a clear glass of room‑temperature water.</li>
+              <li>Wait 2–4 minutes, then see what it does.</li>
+            </ol>
+            <form id="porosityForm" class="stack-form">
+              <div class="field-row">
+                <label>What happened?</label>
+                <select id="porosityResult">
+                  <option value="floats">It kept floating at the top</option>
+                  <option value="middle">It stayed in the middle</option>
+                  <option value="sinks">It sank to the bottom</option>
+                </select>
+              </div>
+              <button type="submit">Analyse hair type</button>
+            </form>
+            <div id="porosityAdvice" class="highlight-card"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="globalPopup" class="global-popup hidden" role="alert">
+      <div class="popup-content">
+        <h2 id="popupTitle"></h2>
+        <p id="popupMessage"></p>
+        <button id="closePopupBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
+
