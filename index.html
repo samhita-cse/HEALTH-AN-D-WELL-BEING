@@ -9,8 +9,16 @@
 <body>
   <div class="app-shell">
     <header class="app-header">
-      <h1>LifeQuest Health Hub</h1>
-      <p class="tagline">Turn your body into a game board for your dream lifestyle.</p>
+      <div class="header-main">
+        <div>
+          <h1>LifeQuest Health Hub</h1>
+          <p class="tagline">Turn your body into a game board for your dream lifestyle.</p>
+        </div>
+        <div class="auth-pill">
+          <button id="googleSignInBtn" class="secondary-btn small-btn">Continue with Google</button>
+          <span id="googleUserLabel" class="hint"></span>
+        </div>
+      </div>
     </header>
 
     <main class="app-main">
@@ -25,7 +33,7 @@
 
       <!-- Humanoid body tracker -->
       <section id="bodyTracker" class="tab-panel active">
-        <h2>Body Quest Humanoid</h2>
+        <h2>Epic Fit</h2>
         <div class="panel-grid">
           <div class="panel-left">
             <svg
@@ -34,43 +42,70 @@
               class="body-svg"
               aria-labelledby="bodyTitle"
             >
-              <title id="bodyTitle">Body Progress</title>
-              <!-- Torso -->
-              <rect id="torso" x="80" y="90" width="40" height="90" class="body-part" />
-              <!-- Head -->
-              <circle id="head" cx="100" cy="55" r="25" class="body-part" />
-              <!-- Arms -->
-              <rect id="leftArm" x="50" y="95" width="25" height="75" class="body-part" />
-              <rect id="rightArm" x="125" y="95" width="25" height="75" class="body-part" />
-              <!-- Legs -->
-              <rect id="leftLeg" x="80" y="180" width="15" height="90" class="body-part" />
-              <rect id="rightLeg" x="105" y="180" width="15" height="90" class="body-part" />
-              <!-- Simple kidneys inside torso -->
-              <ellipse id="leftKidney" cx="88" cy="125" rx="6" ry="10" class="body-part organ" />
-              <ellipse id="rightKidney" cx="112" cy="125" rx="6" ry="10" class="body-part organ" />
+              <title id="bodyTitle">Epic Fit Progress</title>
+
+              <!-- Head / Face -->
+              <g id="faceGroup" class="body-part">
+                <circle id="face" cx="100" cy="56" r="26" class="body-part part-face" />
+                <circle id="eyeLeft" cx="92" cy="52" r="3" class="body-part part-eye" />
+                <circle id="eyeRight" cx="108" cy="52" r="3" class="body-part part-eye" />
+                <!-- smile -->
+                <path id="mouth" d="M92 64 A 8 7 0 0 0 108 64" class="body-part part-mouth" />
+              </g>
+
+              <!-- Torso (wider) -->
+              <rect id="torso" x="72" y="92" width="56" height="100" rx="16" class="body-part part-torso" />
+
+              <!-- Heart (top-left of torso) -->
+              <path
+                id="heart"
+                class="body-part part-heart"
+                d="M88 114
+                   C88 108, 96 108, 96 114
+                   C96 108, 104 108, 104 114
+                   C104 122, 96 126, 96 132
+                   C96 126, 88 122, 88 114 Z"
+              />
+
+              <!-- Kidneys (two circles) -->
+              <circle id="kidneyLeft" cx="90" cy="145" r="7" class="body-part part-kidney" />
+              <circle id="kidneyRight" cx="110" cy="145" r="7" class="body-part part-kidney" />
+
+              <!-- Arms (long ovals) -->
+              <ellipse id="armLeft" cx="55" cy="135" rx="12" ry="56" class="body-part part-limb" />
+              <ellipse id="armRight" cx="145" cy="135" rx="12" ry="56" class="body-part part-limb" />
+
+              <!-- Legs (long rectangles) -->
+              <rect id="legLeft" x="78" y="192" width="18" height="110" rx="10" class="body-part part-limb" />
+              <rect id="legRight" x="104" y="192" width="18" height="110" rx="10" class="body-part part-limb" />
             </svg>
           </div>
           <div class="panel-right">
-            <h3>Log physical activity by body part</h3>
-            <p>Every time you do a movement or task that targets a specific area, log it here. Only the parts you actually train will light up.</p>
+            <h3>Track your day</h3>
+            <p>Add anything you did today. The body lights up based on what your activity supports.</p>
             <form id="bodyActivityForm" class="stack-form">
               <div class="field-row">
                 <label>Activity name</label>
-                <input type="text" id="activityName" placeholder="e.g. 30 min walk, push‑ups, yoga, water goal" />
+                <input type="text" id="activityName" placeholder="e.g. Skincare, water goal, breathing, abs workout, walk" />
               </div>
               <div class="field-row">
-                <label>What did it mainly work?</label>
+                <label>What did it mainly work on?</label>
                 <select id="activityFocus">
-                  <option value="legs">Legs (walking, running, squats)</option>
-                  <option value="arms">Arms / upper body (push‑ups, lifting, sports)</option>
-                  <option value="torso">Core / torso (planks, yoga, posture work)</option>
-                  <option value="head">Mind / head (meditation, deep focus work)</option>
-                  <option value="kidneys">Hydration / kidneys (hitting water goal)</option>
-                  <option value="full">Full body session</option>
+                  <option value="face">Skincare / face exercise / face puzzles</option>
+                  <option value="heart">Breathing exercise (heart)</option>
+                  <option value="kidneys">Drinking water (kidneys)</option>
+                  <option value="hands">Hand / arm workout</option>
+                  <option value="legs">Leg workout</option>
+                  <option value="abs">Abs workout (core)</option>
                 </select>
               </div>
-              <button type="submit">Log activity</button>
+              <button type="submit">Add activity</button>
             </form>
+
+            <div id="bodyProgressCount" class="highlight-card"></div>
+            <div id="bodyActivityLog"></div>
+            <div id="bodyDailyReport" class="highlight-card"></div>
+
             <button id="resetBodyBtn" class="secondary-btn">Reset today’s body progress</button>
             <div id="bodyQuestMessage" class="message-area"></div>
           </div>
@@ -182,11 +217,27 @@
 
       <!-- Workout & sleep -->
       <section id="workoutSleep" class="tab-panel">
-        <h2>Workout Plan & Sleep Designer</h2>
+        <h2>Workout Planner & Sleep Designer</h2>
         <div class="panel-grid">
           <div class="panel-left">
-            <h3>Workout plan</h3>
+            <h3>Workout Planner</h3>
             <form id="workoutForm" class="stack-form">
+              <div class="field-row">
+                <label>Do you have any disabilities?</label>
+                <input
+                  type="text"
+                  id="workoutDisability"
+                  placeholder="Optional (e.g. knee pain, asthma, back pain, wheelchair user)"
+                />
+              </div>
+              <div class="field-row">
+                <label>What time do you normally work out?</label>
+                <input type="time" id="workoutTime" value="18:00" />
+                <button type="button" id="enableWorkoutRemindersBtn" class="secondary-btn small-btn">
+                  Enable reminders
+                </button>
+                <div class="hint" id="workoutReminderHint"></div>
+              </div>
               <div class="field-row">
                 <label>Level</label>
                 <select id="workoutLevel">
@@ -213,7 +264,8 @@
               </div>
               <button type="submit">Generate plan</button>
             </form>
-            <div id="workoutPlan" class="highlight-card"></div>
+            <div id="workoutPlanSummary" class="highlight-card"></div>
+            <div id="workoutPlanUI" class="workout-plan-ui"></div>
           </div>
           <div class="panel-right">
             <h3>Sleep schedule upgrade</h3>
@@ -323,6 +375,31 @@
       </div>
     </div>
   </div>
+
+  <!-- Firebase (optional). Used for anonymous "open sign-in" + syncing. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+
+  <script>
+    // 1) Create a Firebase project, then paste your config here.
+    // Firebase config is okay to be public, but you MUST set Firestore rules properly.
+    // If you leave this as null, the app runs in local-only mode.
+    window.__FIREBASE_CONFIG__ = {
+      apiKey: "AIzaSyBNyFBqmbo7AnaeUMCv74k7dqFD7Xdwonk",
+      authDomain: "health-and-well-being-822e7.firebaseapp.com",
+      projectId: "health-and-well-being-822e7",
+      storageBucket: "health-and-well-being-822e7.firebasestorage.app",
+      messagingSenderId: "405802233265",
+      appId: "1:405802233265:web:ffb3609f00bc6b77e62190",
+      measurementId: "G-X79EQ6L7QY",
+    };
+
+    // 2) Claude MUST be called from a server to keep your API key secret.
+    // Put your deployed HTTPS endpoint here (e.g., Firebase Function URL).
+    // If null, the chatbot stays in local rule-based demo mode.
+    window.__CLAUDE_PROXY_URL__ = null;
+  </script>
 
   <script src="main.js"></script>
 </body>
