@@ -20,6 +20,10 @@ let firebaseAuth = null;
 let appStateSyncTimer = null;
 let applyingRemoteState = false;
 let stopFriendScoreListener = null;
+let stopAppStateListener = null;
+let lastSavedAppStateSignature = "";
+let lastAppliedRemoteStateSignature = "";
+let hasShownFullBodyQuest = false;
 
 async function initFirebaseIfConfigured() {
   const cfg = window.__FIREBASE_CONFIG__;
@@ -148,6 +152,14 @@ function canUseRealtimeDbHelpers() {
   return typeof window.saveUserData === "function" && typeof window.getUserData === "function";
 }
 
+function getAppStateSignature(data) {
+  try {
+    return JSON.stringify(data ?? null);
+  } catch {
+    return "";
+  }
+}
+
 const SCOPED_LOCAL_KEYS = new Set([
   "riskRadarProfile",
   "workoutStateV1",
@@ -208,7 +220,7 @@ function applyPersistedAppState(data) {
     state.sleepTouches = Array.isArray(data.sleepTouches) ? data.sleepTouches : [];
     state.racers = data.racers || {};
     state.friendConnections = Array.isArray(data.friendConnections) ? data.friendConnections : [];
-    state.profile = data.profile || data.riskRadarProfile || null;
+    state.profile = data.riskRadarProfile || data.profile || null;
     selectedMoodEmoji = data.selectedMoodEmoji || null;
 
     if (data.riskRadarProfile) saveJson("riskRadarProfile", data.riskRadarProfile);
@@ -241,13 +253,32 @@ function applyPersistedAppState(data) {
 
 async function loadAppStateFromRealtimeDb() {
   if (!canUseRealtimeDbHelpers() || !window.currentFirebaseUser) return;
+  if (typeof stopAppStateListener === "function") {
+    stopAppStateListener();
+    stopAppStateListener = null;
+  }
   try {
     const snapshot = await window.getUserData("appState");
     if (snapshot) {
+      lastAppliedRemoteStateSignature = getAppStateSignature(snapshot);
       applyPersistedAppState(snapshot);
       await refreshRaceTrackFromFriends();
     } else {
       scheduleAppStateSync();
+    }
+    if (typeof window.listenToUserData === "function") {
+      stopAppStateListener = window.listenToUserData("appState", async (nextState) => {
+        if (!window.currentFirebaseUser) return;
+        if (!nextState || typeof nextState !== "object") return;
+        const signature = getAppStateSignature(nextState);
+        if (!signature || signature === lastSavedAppStateSignature || signature === lastAppliedRemoteStateSignature) {
+          return;
+        }
+        lastAppliedRemoteStateSignature = signature;
+        applyPersistedAppState(nextState);
+        await refreshRaceTrackFromFriends();
+        subscribeToFriendScoreUpdates();
+      });
     }
   } catch (error) {
     console.error("Failed to load app state:", error);
@@ -257,7 +288,10 @@ async function loadAppStateFromRealtimeDb() {
 async function saveAppStateToRealtimeDb() {
   if (applyingRemoteState || !canUseRealtimeDbHelpers() || !window.currentFirebaseUser) return;
   try {
-    await window.saveUserData("appState", buildPersistedAppState());
+    const payload = buildPersistedAppState();
+    const signature = getAppStateSignature(payload);
+    lastSavedAppStateSignature = signature;
+    await window.saveUserData("appState", payload);
   } catch (error) {
     console.error("Failed to save app state:", error);
   }
@@ -311,6 +345,7 @@ function repaintBodyFromRegions() {
   renderBodyDailyReport();
 
   if (completedCount === 0) {
+    hasShownFullBodyQuest = false;
     bodyQuestMessage.textContent = "";
     return;
   }
@@ -320,12 +355,16 @@ function repaintBodyFromRegions() {
       document.getElementById(id)?.classList.add("completed")
     );
     bodyQuestMessage.textContent = "Full body quest complete. You just lived the lifestyle most people only talk about.";
-    showPopup("Full Body Lit Up", "Congratulations – you hit every body quest today. This is the lifestyle most people dream about but never execute.");
-  } else {
-    bodyQuestMessage.textContent = `Progress: ${completedCount}/${total} done today.`;
+    if (!hasShownFullBodyQuest) {
+      showPopup("Full Body Lit Up", "Congratulations - you hit every body quest today. This is the lifestyle most people dream about but never execute.");
+      hasShownFullBodyQuest = true;
+    }
+    return;
   }
-}
 
+  hasShownFullBodyQuest = false;
+  bodyQuestMessage.textContent = `Progress: ${completedCount}/${total} done today.`;
+}
 bodyActivityForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const name = document.getElementById("activityName").value.trim();
@@ -491,6 +530,7 @@ function addFoodEntry(name, kcal) {
 }
 
 function resetSessionViewState() {
+  clearTimeout(appStateSyncTimer);
   state.calorieTarget = null;
   state.todayCalories = 0;
   state.foods = [];
@@ -502,6 +542,11 @@ function resetSessionViewState() {
   state.friendConnections = [];
   state.profile = null;
   selectedMoodEmoji = null;
+  currentWorkoutPlan = null;
+  workoutSelectedDayIdx = null;
+  hasShownFullBodyQuest = false;
+  lastSavedAppStateSignature = "";
+  lastAppliedRemoteStateSignature = "";
   bodyActivities.length = 0;
   Object.keys(bodyRegionsHit).forEach((key) => {
     bodyRegionsHit[key] = false;
@@ -1339,6 +1384,22 @@ function addChatMessage(role, text) {
   chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
+async function getBackendChatReply(text) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ message: text })
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "Chat request failed.");
+  }
+  const payload = await response.json();
+  return String(payload.reply || "").trim();
+}
+
 function getChatbotReply(text) {
   const t = text.toLowerCase().trim();
   if (!t) return "I'm here when you need me. How are you feeling today? 💙";
@@ -1371,9 +1432,16 @@ chatForm?.addEventListener("submit", (e) => {
   if (!text) return;
   addChatMessage("user", text);
   chatInput.value = "";
-  setTimeout(() => {
-    addChatMessage("bot", getChatbotReply(text));
-  }, 200);
+  addChatMessage("bot", "Thinking... 💭");
+  const pending = chatWindow.lastElementChild?.querySelector(".chat-bubble.bot");
+  (async () => {
+    try {
+      const reply = await getBackendChatReply(text);
+      if (pending) pending.textContent = reply || getChatbotReply(text);
+    } catch {
+      if (pending) pending.textContent = getChatbotReply(text);
+    }
+  })();
 });
 
 // POROSITY
@@ -1441,9 +1509,47 @@ const FOOD_ANALYSIS_DB = {
 const FOOD_ANALYSIS_MEALS = ["breakfast", "lunch", "dinner"];
 const SLEEP_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+function readFoodProfileForm() {
+  const ageEl = document.getElementById("rrAge");
+  const sexEl = document.getElementById("rrSex");
+  const heightEl = document.getElementById("rrHeight");
+  const weightEl = document.getElementById("rrWeight");
+  const activityEl = document.getElementById("rrActivity");
+  const conditionsEl = document.getElementById("rrConditions");
+  const allergiesEl = document.getElementById("rrAllergies");
+  if (!ageEl || !sexEl || !heightEl || !weightEl || !activityEl) return null;
+  return {
+    age: Number(ageEl.value) || 30,
+    sex: sexEl.value || "female",
+    height: Number(heightEl.value) || 165,
+    weight: Number(weightEl.value) || 60,
+    activity: Number(activityEl.value) || 1.55,
+    conditions: conditionsEl?.value?.trim() || "",
+    allergies: allergiesEl?.value?.trim() || "",
+  };
+}
+
 function getSavedFoodProfile() {
   const fallback = { age: 30, sex: "female", height: 165, weight: 60, activity: 1.55, conditions: "", allergies: "" };
-  return { ...fallback, ...(loadJson("riskRadarProfile", fallback) || {}), ...(state.profile || {}) };
+  const liveProfile = readFoodProfileForm();
+  if (liveProfile) {
+    return {
+      ...fallback,
+      ...liveProfile,
+      conditions: String(liveProfile.conditions || "").trim(),
+      allergies: String(liveProfile.allergies || "").trim(),
+    };
+  }
+  const savedProfile = loadJson("riskRadarProfile", null);
+  const source = savedProfile && typeof savedProfile === "object"
+    ? savedProfile
+    : (state.profile && typeof state.profile === "object" ? state.profile : {});
+  return {
+    ...fallback,
+    ...source,
+    conditions: String(source.conditions || "").trim(),
+    allergies: String(source.allergies || "").trim(),
+  };
 }
 
 function calculateBmi(heightCm, weightKg) {
@@ -1492,11 +1598,12 @@ function renderFoodAnalysisProfile(container) {
   state.profile = profile;
   state.calorieTarget = calories;
   container.innerHTML = `<div class="analysis-grid"><div class="highlight-card"><h3>Profile</h3><div class="field-row"><label>Age</label><input type="number" id="rrAge" value="${profile.age}" min="10" max="100" /></div><div class="field-row"><label>Gender</label><select id="rrSex"><option value="male" ${profile.sex === "male" ? "selected" : ""}>Male</option><option value="female" ${profile.sex === "female" ? "selected" : ""}>Female</option></select></div><div class="field-row"><label>Height (cm)</label><input type="number" id="rrHeight" value="${profile.height}" /></div><div class="field-row"><label>Weight (kg)</label><input type="number" id="rrWeight" value="${profile.weight}" /></div><div class="field-row"><label>Activity level</label><select id="rrActivity"><option value="1.2" ${profile.activity == 1.2 ? "selected" : ""}>Sedentary</option><option value="1.375" ${profile.activity == 1.375 ? "selected" : ""}>Lightly active</option><option value="1.55" ${profile.activity == 1.55 ? "selected" : ""}>Moderately active</option><option value="1.725" ${profile.activity == 1.725 ? "selected" : ""}>Very active</option></select></div><div class="field-row"><label>Health conditions</label><textarea id="rrConditions" rows="2" placeholder="e.g. diabetes, hypertension, PCOS">${escapeHtml(profile.conditions || "")}</textarea></div><div class="field-row"><label>Allergies</label><textarea id="rrAllergies" rows="2" placeholder="e.g. peanuts, milk, egg">${escapeHtml(profile.allergies || "")}</textarea></div><button type="button" id="rrSaveProfile">Save profile</button></div><div class="highlight-card"><h3>Results</h3><div id="rrProfileResult"><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "--"}<br/><strong>Daily calories:</strong> ${calories} kcal<br/><span class="hint">Estimate only. Use medical advice for diagnosis or treatment.</span></div></div></div>`;
-  document.getElementById("rrSaveProfile")?.addEventListener("click", () => {
+  document.getElementById("rrSaveProfile")?.addEventListener("click", async () => {
     const next = { age: Number(document.getElementById("rrAge")?.value) || 30, sex: document.getElementById("rrSex")?.value || "female", height: Number(document.getElementById("rrHeight")?.value) || 165, weight: Number(document.getElementById("rrWeight")?.value) || 60, activity: Number(document.getElementById("rrActivity")?.value) || 1.55, conditions: document.getElementById("rrConditions")?.value?.trim() || "", allergies: document.getElementById("rrAllergies")?.value?.trim() || "" };
     saveJson("riskRadarProfile", next);
     state.profile = next;
     state.calorieTarget = calculateDailyCalories(next);
+    await saveAppStateToRealtimeDb();
     initRiskRadar();
     scheduleAppStateSync();
   });
@@ -1608,7 +1715,8 @@ function renderFoodAnalysisRisks(container) {
   const profile = getSavedFoodProfile();
   const risks = buildDiseaseRisks(profile);
   const bmi = calculateBmi(profile.height, profile.weight);
-  container.innerHTML = `<div class="highlight-card"><h3>Risk factors</h3><p><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "--"} • <strong>Daily calories:</strong> ${state.calorieTarget || calculateDailyCalories(profile)} kcal</p><p class="hint">These are estimate-based prevention notes from the profile section and are not a diagnosis.</p><div class="risk-factor-list">${risks.map((risk) => `<article class="risk-factor-card"><h4>${escapeHtml(risk.title)} <span class="risk-pill">${escapeHtml(risk.level)}</span></h4><p><strong>Causes:</strong> ${escapeHtml(risk.causes)}</p><p><strong>Preventive measures:</strong> ${escapeHtml(risk.prevention)}</p><p><strong>Protective foods:</strong> ${escapeHtml(risk.foods)}</p></article>`).join("")}</div></div>`;
+  const currentConditions = String(profile.conditions || "").trim();
+  container.innerHTML = `<div class="highlight-card"><h3>Risk factors</h3><p><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "--"} • <strong>Daily calories:</strong> ${state.calorieTarget || calculateDailyCalories(profile)} kcal</p><p><strong>Current health conditions from profile:</strong> ${escapeHtml(currentConditions || "None entered")}</p><p class="hint">These are estimate-based prevention notes from the profile section and are not a diagnosis.</p><div class="risk-factor-list">${risks.map((risk) => `<article class="risk-factor-card"><h4>${escapeHtml(risk.title)} <span class="risk-pill">${escapeHtml(risk.level)}</span></h4><p><strong>Causes:</strong> ${escapeHtml(risk.causes)}</p><p><strong>Preventive measures:</strong> ${escapeHtml(risk.prevention)}</p><p><strong>Protective foods:</strong> ${escapeHtml(risk.foods)}</p></article>`).join("")}</div></div>`;
 }
 
 function initRiskRadar() {
@@ -1838,6 +1946,48 @@ function getChatbotReply(text) {
   return `I hear you. ${text.length > 80 ? "There is a lot sitting underneath that message." : "That sounds important."} 💛 Tell me which part feels biggest right now: the situation, the emotion, or the fear about what happens next?`;
 }
 
+function getChatbotReply(text) {
+  const t = String(text || "").trim().toLowerCase();
+  if (!t) return "I'm here for you. Tell me what happened today, or just say how you're feeling.";
+  if (/^(hi|hello|hey|yo|hola|hii)\b/.test(t)) return "Hi. How are you feeling right now? You can be honest with me.";
+  if (/how are you|what'?s up|wassup/.test(t)) return "I'm here and ready to listen. What has your day felt like so far?";
+  if (/thank|thanks|tysm|ty\b/.test(t)) return "Always. I'm glad you reached out. I'm here whenever you need a check-in.";
+  if (/bye|goodnight|gn\b|see you|ttyl/.test(t)) return "Take care of yourself tonight. Even one small kind thing for yourself counts.";
+  if (/happy|good|great|fine|okay|ok\b|excited|better|relieved/.test(t)) return "I'm glad to hear that. Hold onto what helped. Do you want to tell me what went right?";
+  if (/sad|cry|crying|down|hurt|heartbroken|broken|empty|numb/.test(t)) return "That sounds really heavy. You don't have to carry it all at once. What part hurts the most right now?";
+  if (/anxious|anxiety|panic|worried|nervous|overthinking|scared|afraid/.test(t)) return "Your mind sounds overloaded right now. Try one slow breath with me: in for 4, hold 4, out for 6. What thought keeps looping?";
+  if (/angry|mad|furious|annoyed|irritated|frustrated/.test(t)) return "You sound really frustrated. Sometimes it helps to pause before reacting and ask: do I need space, support, or a clear boundary?";
+  if (/stress|stressed|pressure|overwhelmed|too much/.test(t)) return "That makes sense. When everything feels loud, pick just one small next step. What's the easiest thing you can finish in 10 minutes?";
+  if (/tired|sleepy|exhausted|drained|burnt out|burned out|fatigue/.test(t)) return "You sound drained. This may be a recovery moment, not a push-harder moment. Have you had water, food, or rest recently?";
+  if (/lonely|alone|isolated|no one|nobody/.test(t)) return "Feeling alone can hurt a lot. Even a tiny connection can help. Is there one safe person you could text today?";
+  if (/family|mom|mother|dad|father|parents|sister|brother/.test(t)) return "Family stuff can stay in your chest for hours. Are you feeling misunderstood, pressured, or hurt?";
+  if (/relationship|partner|boyfriend|girlfriend|crush|friendship|friend/.test(t)) return "Relationships can bring up big feelings. Do you want comfort, clarity, or help figuring out what to say next?";
+  if (/study|exam|school|college|homework|assignment|grades/.test(t)) return "That sounds like study pressure. Let's shrink it down. What's the one task that would make today feel a little lighter?";
+  if (/work|job|office|boss|manager|meeting|deadline/.test(t)) return "Work stress can pile up quickly. Try separating what is urgent from what is just loud. What's the main pressure point?";
+  if (/money|finance|bills|debt|loan/.test(t)) return "Financial stress is heavy. Try not to solve everything at once. One small next step is enough for today.";
+  if (/sleep|insomnia|couldn'?t sleep|no sleep/.test(t)) return "Sleep affects everything. A calmer wind-down, dimmer lights, and less phone time before bed can really help. Has sleep been bad for a few days or just tonight?";
+  if (/body|weight|ugly|fat|appearance|looks/.test(t)) return "I'm sorry you're feeling that way. Your body is carrying you through a lot. Do you want support with confidence, habits, or self-talk?";
+  if (/hate myself|worthless|useless|failure/.test(t)) return "I'm really sorry you're feeling this badly. You deserve support, not punishment. If you feel unsafe or might hurt yourself, please contact local emergency services or a trusted person right now.";
+
+  const themes = [];
+  if (/work|job|study|exam|school|college/.test(t)) themes.push("performance pressure");
+  if (/family|parents|relationship|partner|friend/.test(t)) themes.push("relationship stress");
+  if (/money|bills|debt|loan/.test(t)) themes.push("money worries");
+  if (/sleep|tired|exhausted|burnt|burned/.test(t)) themes.push("low energy");
+  if (/health|body|weight/.test(t)) themes.push("health concerns");
+
+  let result = "I hear you. ";
+  if (themes.length) {
+    result += `It sounds like this may be tied to ${themes.join(", ")}. `;
+  } else if (t.length > 100) {
+    result += "There is a lot sitting underneath that message. ";
+  } else {
+    result += "That sounds important. ";
+  }
+  result += "Tell me which feels biggest right now: the situation itself, the emotion, or the fear about what happens next? This app is supportive, but not a replacement for a licensed therapist.";
+  return result;
+}
+
 document.querySelector('.tab-btn[data-tab="riskRadar"]')?.replaceChildren(document.createTextNode("Food Analysis"));
 if (document.querySelector("#riskRadar h2")) document.querySelector("#riskRadar h2").textContent = "Food Analysis";
 if (document.querySelector("#workoutSleep .panel-right h3")) document.querySelector("#workoutSleep .panel-right h3").textContent = "Sleep Tracker";
@@ -1887,6 +2037,10 @@ window.addEventListener("firebase-auth-changed", async (event) => {
   const user = event?.detail?.user || null;
   if (!user) {
     resetSessionViewState();
+    if (typeof stopAppStateListener === "function") {
+      stopAppStateListener();
+      stopAppStateListener = null;
+    }
     if (typeof stopFriendScoreListener === "function") {
       stopFriendScoreListener();
       stopFriendScoreListener = null;

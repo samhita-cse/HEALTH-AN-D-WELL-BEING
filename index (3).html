@@ -464,9 +464,9 @@
 
     window.listenToUserData = function(dataKey, callback) {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) return () => {};
       const dataRef = ref(db, "users/" + user.uid + "/" + dataKey);
-      onValue(dataRef, (snapshot) => {
+      return onValue(dataRef, (snapshot) => {
         callback(snapshot.val());
       });
     };
