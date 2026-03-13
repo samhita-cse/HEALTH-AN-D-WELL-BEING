@@ -1,0 +1,13 @@
+{
+  "name": "lifequest-health-hub",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "build": "echo \"No build step required\"",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
