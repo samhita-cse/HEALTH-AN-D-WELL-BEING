@@ -249,3 +249,7 @@ Without that, Google sign-in may fail on the deployed site.
 - improve workout scoring by duration or difficulty
 - add a visible finish flag on the race track
 - clean up remaining mojibake/encoding text fragments in older HTML strings
+
+
+##SCREENSHOTS
+https://drive.google.com/drive/folders/1ire96sBkAXLNFdwliI51CEP3dbgQL-UU
